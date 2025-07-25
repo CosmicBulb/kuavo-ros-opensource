@@ -42,25 +42,32 @@ pip install -r requirements.txt
 
 ### 2. 启动后端服务
 
+**普通模式**：
 ```bash
 cd kuavo-studio/backend
 python main.py
 ```
 
-后端服务将在 http://localhost:8000 启动
+**模拟器模式**（无需实际设备）：
+```bash
+cd kuavo-studio/backend
+python run_simulator_8001.py
+```
+
+后端服务将在 http://localhost:8001 启动
 
 ### 3. 启动前端
 
-直接在浏览器中打开 `kuavo-studio/frontend/index.html` 文件即可。
+**方法一**：直接在浏览器中打开 `kuavo-studio/frontend/index.html` 文件
 
-或者使用Python的简单HTTP服务器：
-
+**方法二**：使用Python的简单HTTP服务器：
 ```bash
 cd kuavo-studio/frontend
-python -m http.server 8080
+python start_frontend.py
 ```
+然后访问 http://localhost:8081
 
-然后访问 http://localhost:8080
+**方法三**：直接打开 `打开前端界面.html` 文件，它会自动跳转到前端页面
 
 ## 使用说明
 
@@ -91,8 +98,8 @@ python -m http.server 8080
 ## API文档
 
 后端启动后，可访问自动生成的API文档：
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8001/docs
+- ReDoc: http://localhost:8001/redoc
 
 ## 项目结构
 
@@ -100,19 +107,27 @@ python -m http.server 8080
 kuavo-studio/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # API路由
-│   │   ├── core/         # 核心配置
-│   │   ├── models/       # 数据模型
-│   │   ├── schemas/      # Pydantic模型
-│   │   └── services/     # 业务服务
-│   ├── main.py          # 应用入口
-│   └── requirements.txt  # 依赖列表
+│   │   ├── api/            # API路由
+│   │   │   ├── v1/         # API版本1
+│   │   │   └── websocket.py # WebSocket端点
+│   │   ├── core/           # 核心配置
+│   │   ├── models/         # 数据模型
+│   │   ├── schemas/        # Pydantic模型
+│   │   ├── services/       # 业务服务
+│   │   └── simulator/      # 机器人模拟器
+│   ├── main.py            # 应用入口
+│   ├── run_simulator_8001.py # 模拟器模式启动
+│   └── requirements.txt   # 依赖列表
 ├── frontend/
-│   ├── index.html       # 主页面
-│   ├── styles.css       # 样式
-│   └── script.js        # 前端逻辑
-└── README.md
-
+│   ├── index.html         # 主页面
+│   ├── calibration.html   # 标定页面
+│   ├── script.js          # 主页面逻辑
+│   ├── calibration.js     # 标定逻辑
+│   ├── styles.css         # 样式文件
+│   └── start_frontend.py  # 前端服务器
+├── 打开前端界面.html       # 快速入口
+├── README.md              # 项目文档
+└── .gitignore            # Git忽略规则
 ```
 
 ## 注意事项
@@ -132,6 +147,12 @@ kuavo-studio/
    - WebSocket需要稳定的网络连接
 
 ## 开发说明
+
+### 模拟器模式
+项目包含完整的机器人模拟器，无需实际硬件即可测试：
+- 模拟SSH连接和命令执行
+- 模拟标定脚本输出
+- 支持交互式用户确认流程
 
 ### 扩展标定类型
 在 `calibration_service.py` 中的 `interaction_patterns` 添加新的交互模式：
