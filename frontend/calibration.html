@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机器人标定 - KUAVO Studio</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .calibration-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .device-selector {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .device-selector select {
+            width: 100%;
+            max-width: 400px;
+            padding: 0.75rem;
+            font-size: 1rem;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+        }
+        
+        .calibration-types {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .calibration-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow: hidden;
+            cursor: pointer;
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .calibration-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .calibration-card-header {
+            background: #f8f9fa;
+            padding: 1rem 1.5rem;
+            font-weight: 500;
+            font-size: 1.1rem;
+            color: #333;
+        }
+        
+        .calibration-card-body {
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .robot-diagram {
+            width: 200px;
+            height: 300px;
+            margin: 0 auto;
+        }
+        
+        .calibration-card-footer {
+            padding: 1rem 1.5rem;
+            background: #f8f9fa;
+            text-align: center;
+        }
+        
+        .calibration-process {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 2rem;
+            display: none;
+        }
+        
+        .process-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .process-steps {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2rem;
+            padding: 0 2rem;
+        }
+        
+        .process-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+        
+        .process-step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            width: 100%;
+            height: 2px;
+            background: #e0e0e0;
+        }
+        
+        .process-step.active::after {
+            background: #1a73e8;
+        }
+        
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 500;
+            z-index: 1;
+        }
+        
+        .process-step.active .step-circle {
+            background: #1a73e8;
+        }
+        
+        .process-step.completed .step-circle {
+            background: #34a853;
+        }
+        
+        .step-label {
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+            color: #666;
+        }
+        
+        .calibration-data-table {
+            margin: 2rem 0;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .data-table th,
+        .data-table td {
+            padding: 0.75rem;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
+        
+        .data-table th {
+            background: #f8f9fa;
+            font-weight: 500;
+        }
+        
+        .terminal-logs {
+            background: #000;
+            color: #0f0;
+            padding: 1rem;
+            border-radius: 4px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.875rem;
+            line-height: 1.4;
+        }
+        
+        .success-screen,
+        .error-screen {
+            text-align: center;
+            padding: 3rem;
+        }
+        
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: #34a853;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 2rem;
+        }
+        
+        .error-icon {
+            width: 100px;
+            height: 100px;
+            background: #ea4335;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 2rem;
+        }
+        
+        .error-details {
+            text-align: left;
+            background: #fef7e0;
+            border: 1px solid #fbbf24;
+            border-radius: 4px;
+            padding: 1rem;
+            margin: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- 头部 -->
+        <header class="header">
+            <div class="header-nav">
+                <a href="index.html" class="btn btn-secondary">← 返回设备列表</a>
+                <h1>机器人标定</h1>
+            </div>
+        </header>
+        
+        <!-- 主内容区 -->
+        <main class="calibration-container">
+            <!-- 设备选择器 -->
+            <div class="device-selector">
+                <label for="deviceSelect">请选择需要进行标定的设备：</label>
+                <select id="deviceSelect">
+                    <option value="">请选择设备</option>
+                </select>
+            </div>
+            
+            <!-- 标定类型选择 -->
+            <div id="calibrationTypes" class="calibration-types">
+                <div class="calibration-card" onclick="selectCalibrationType('zero_point')">
+                    <div class="calibration-card-header">全身零点标定</div>
+                    <div class="calibration-card-body">
+                        <svg class="robot-diagram" viewBox="0 0 200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- 机器人全身示意图 -->
+                            <circle cx="100" cy="40" r="30" stroke="#333" stroke-width="2" fill="none"/>
+                            <rect x="70" y="70" width="60" height="80" stroke="#333" stroke-width="2" fill="none"/>
+                            <line x1="70" y1="90" x2="30" y2="120" stroke="#333" stroke-width="2"/>
+                            <line x1="130" y1="90" x2="170" y2="120" stroke="#333" stroke-width="2"/>
+                            <line x1="30" y1="120" x2="20" y2="180" stroke="#333" stroke-width="2"/>
+                            <line x1="170" y1="120" x2="180" y2="180" stroke="#333" stroke-width="2"/>
+                            <line x1="90" y1="150" x2="80" y2="220" stroke="#333" stroke-width="2"/>
+                            <line x1="110" y1="150" x2="120" y2="220" stroke="#333" stroke-width="2"/>
+                            <line x1="80" y1="220" x2="70" y2="280" stroke="#333" stroke-width="2"/>
+                            <line x1="120" y1="220" x2="130" y2="280" stroke="#333" stroke-width="2"/>
+                            <!-- 标定点标记 -->
+                            <circle cx="100" cy="40" r="5" fill="#ea4335"/>
+                            <circle cx="50" cy="105" r="5" fill="#ea4335"/>
+                            <circle cx="150" cy="105" r="5" fill="#ea4335"/>
+                            <circle cx="25" cy="150" r="5" fill="#ea4335"/>
+                            <circle cx="175" cy="150" r="5" fill="#ea4335"/>
+                            <circle cx="85" cy="185" r="5" fill="#ea4335"/>
+                            <circle cx="115" cy="185" r="5" fill="#ea4335"/>
+                            <circle cx="75" cy="250" r="5" fill="#ea4335"/>
+                            <circle cx="125" cy="250" r="5" fill="#ea4335"/>
+                        </svg>
+                    </div>
+                    <div class="calibration-card-footer">
+                        <p style="color: #666; font-size: 0.875rem;">用于机器人全身关节的零点标定</p>
+                    </div>
+                </div>
+                
+                <div class="calibration-card" onclick="selectCalibrationType('head_hand')">
+                    <div class="calibration-card-header">头手标定（Z191）</div>
+                    <div class="calibration-card-body">
+                        <svg class="robot-diagram" viewBox="0 0 200 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- 头部标定示意图 -->
+                            <circle cx="100" cy="60" r="40" stroke="#333" stroke-width="2" fill="none"/>
+                            <circle cx="85" cy="50" r="5" fill="#333"/>
+                            <circle cx="115" cy="50" r="5" fill="#333"/>
+                            <path d="M 85 75 Q 100 85 115 75" stroke="#333" stroke-width="2" fill="none"/>
+                            <!-- 手部标定示意图 -->
+                            <rect x="60" y="150" width="80" height="100" stroke="#333" stroke-width="2" fill="none"/>
+                            <line x1="100" y1="150" x2="100" y2="120" stroke="#333" stroke-width="2"/>
+                            <!-- 标定点 -->
+                            <circle cx="100" cy="30" r="5" fill="#1a73e8"/>
+                            <circle cx="70" cy="60" r="5" fill="#1a73e8"/>
+                            <circle cx="130" cy="60" r="5" fill="#1a73e8"/>
+                            <circle cx="80" cy="180" r="5" fill="#1a73e8"/>
+                            <circle cx="120" cy="180" r="5" fill="#1a73e8"/>
+                            <circle cx="100" cy="220" r="5" fill="#1a73e8"/>
+                        </svg>
+                    </div>
+                    <div class="calibration-card-footer">
+                        <p style="color: #666; font-size: 0.875rem;">用于头部摄像头与手部的联合标定</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 标定过程 -->
+            <div id="calibrationProcess" class="calibration-process">
+                <div class="process-header">
+                    <h2 id="processTitle">标定进行中</h2>
+                    <button class="btn btn-danger" onclick="stopCalibration()">停止标定</button>
+                </div>
+                
+                <!-- 进度步骤 -->
+                <div class="process-steps">
+                    <div class="process-step active" id="step1">
+                        <div class="step-circle">1</div>
+                        <div class="step-label">初始化设备</div>
+                    </div>
+                    <div class="process-step" id="step2">
+                        <div class="step-circle">2</div>
+                        <div class="step-label">采集标定数据</div>
+                    </div>
+                    <div class="process-step" id="step3">
+                        <div class="step-circle">3</div>
+                        <div class="step-label">数据处理中</div>
+                    </div>
+                    <div class="process-step" id="step4">
+                        <div class="step-circle">4</div>
+                        <div class="step-label">标定完成</div>
+                    </div>
+                </div>
+                
+                <!-- 标定数据表格 -->
+                <div id="calibrationDataTable" class="calibration-data-table" style="display: none;">
+                    <h3>关节数据采集</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>关节名称</th>
+                                <th>左侧 (L)</th>
+                                <th>右侧 (R)</th>
+                                <th>左偏移 (L)</th>
+                                <th>右偏移 (R)</th>
+                                <th>Encoder (L)</th>
+                                <th>Encoder (R)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jointDataBody">
+                            <!-- 动态生成数据行 -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 标定日志 -->
+                <div id="calibrationLogs" class="terminal-logs">
+                    <div class="log-line">Initializing calibration system...</div>
+                </div>
+            </div>
+            
+            <!-- 成功界面 -->
+            <div id="successScreen" class="success-screen" style="display: none;">
+                <div class="success-icon">
+                    <svg width="60" height="60" viewBox="0 0 24 24" fill="white">
+                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                    </svg>
+                </div>
+                <h2>标定完成！可移除标定工具</h2>
+                <p style="color: #666; margin: 1rem 0;">标定数据已保存</p>
+                <div style="margin-top: 2rem;">
+                    <button class="btn btn-secondary" onclick="viewCalibrationReport()">查看标定报告</button>
+                    <button class="btn btn-primary" onclick="backToSelection()">返回</button>
+                </div>
+            </div>
+            
+            <!-- 失败界面 -->
+            <div id="errorScreen" class="error-screen" style="display: none;">
+                <div class="error-icon">
+                    <svg width="60" height="60" viewBox="0 0 24 24" fill="white">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+                    </svg>
+                </div>
+                <h2>标定失败</h2>
+                <div class="error-details">
+                    <h4>可能的原因：</h4>
+                    <ul id="errorReasons">
+                        <li>标定环境光线不足</li>
+                        <li>标定工具未正确安装</li>
+                        <li>机器人关节运动受限</li>
+                    </ul>
+                </div>
+                <button class="btn btn-primary" onclick="retryCalibration()">重新标定</button>
+            </div>
+        </main>
+    </div>
+    
+    <!-- 暂时移除config.js避免冲突 -->
+    <!-- <script src="config.js"></script> -->
+    <script src="calibration.js"></script>
+</body>
+</html>

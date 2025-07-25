@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KUAVO Studio - 机器人管理</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 头部 -->
+        <header class="header">
+            <h1>KUAVO Studio</h1>
+            <div class="header-actions">
+                <a href="calibration.html" class="btn btn-success">机器人标定</a>
+                <button class="btn btn-primary" id="addRobotBtn">添加设备</button>
+            </div>
+        </header>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 设备列表 -->
+            <div class="robots-container">
+                <h2>设备列表</h2>
+                <div id="robotsList" class="robots-list">
+                    <!-- 动态生成的机器人卡片 -->
+                </div>
+            </div>
+
+            <!-- 标定面板 -->
+            <div id="calibrationPanel" class="calibration-panel" style="display: none;">
+                <h2>机器人标定</h2>
+                <div class="calibration-header">
+                    <div id="calibrationInfo"></div>
+                    <button class="btn btn-danger" id="stopCalibrationBtn">停止标定</button>
+                </div>
+                <div class="calibration-logs">
+                    <h3>执行日志</h3>
+                    <div id="calibrationLogs" class="logs-container"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 添加设备弹窗 -->
+        <div id="addRobotModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>添加设备</h2>
+                    <span class="close" id="closeModal">&times;</span>
+                </div>
+                <form id="addRobotForm">
+                    <div class="form-group">
+                        <label for="robotName">设备名称</label>
+                        <input type="text" id="robotName" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="ipAddress">IP地址</label>
+                        <input type="text" id="ipAddress" name="ip_address" required 
+                               pattern="^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$">
+                    </div>
+                    <div class="form-group">
+                        <label for="sshPort">SSH端口</label>
+                        <input type="number" id="sshPort" name="port" value="22" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="sshUser">SSH用户名</label>
+                        <input type="text" id="sshUser" name="ssh_user" value="leju" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="sshPassword">SSH密码</label>
+                        <input type="password" id="sshPassword" name="ssh_password" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="cancelAddRobot">取消</button>
+                        <button type="submit" class="btn btn-primary">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 设备详情弹窗 -->
+        <div id="robotDetailModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>设备详情</h2>
+                    <span class="close" id="closeDetailModal">&times;</span>
+                </div>
+                <div id="robotDetailContent" class="robot-detail">
+                    <!-- 动态生成的设备详情 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 用户确认弹窗 -->
+        <div id="userPromptModal" class="modal" style="display: none;">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2>需要确认</h2>
+                </div>
+                <div class="modal-body">
+                    <p id="userPromptMessage"></p>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="userPromptNo">否</button>
+                    <button type="button" class="btn btn-primary" id="userPromptYes">是</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 连接中弹窗 -->
+        <div id="connectingModal" class="modal" style="display: none;">
+            <div class="modal-content modal-small">
+                <div class="modal-body" style="text-align: center; padding: 3rem 2rem;">
+                    <div class="robot-icon-wrapper">
+                        <svg class="robot-icon" width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="40" cy="40" r="38" fill="#E3F2FD"/>
+                            <path d="M40 16C35.5817 16 32 19.5817 32 24V32H28C25.7909 32 24 33.7909 24 36V52C24 54.2091 25.7909 56 28 56H52C54.2091 56 56 54.2091 56 52V36C56 33.7909 54.2091 32 52 32H48V24C48 19.5817 44.4183 16 40 16ZM36 24C36 21.7909 37.7909 20 40 20C42.2091 20 44 21.7909 44 24V32H36V24ZM32 42C32 40.8954 32.8954 40 34 40C35.1046 40 36 40.8954 36 42C36 43.1046 35.1046 44 34 44C32.8954 44 32 43.1046 32 42ZM44 42C44 40.8954 44.8954 40 46 40C47.1046 40 48 40.8954 48 42C48 43.1046 47.1046 44 46 44C44.8954 44 44 43.1046 44 42Z" fill="#1976D2"/>
+                            <circle cx="40" cy="40" r="3" fill="#FF5722" class="breathing-dot"/>
+                        </svg>
+                    </div>
+                    <h3 style="margin: 1.5rem 0 0.5rem; color: #333;">连接中...</h3>
+                    <p id="connectingStatus" style="color: #666; font-size: 0.875rem;">正在建立SSH连接</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 设备信息确认弹窗 -->
+        <div id="deviceConfirmModal" class="modal" style="display: none;">
+            <div class="modal-content modal-medium">
+                <div class="modal-header">
+                    <h2>确认提示</h2>
+                    <span class="close" id="closeDeviceConfirmModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="device-info-cards">
+                        <div class="info-card">
+                            <div class="info-card-header">设备信息</div>
+                            <div class="info-card-body">
+                                <div class="info-row">
+                                    <span class="info-label">机器人型号</span>
+                                    <span id="confirmHardwareModel" class="info-value">Kuavo 4 pro</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">机器人版本</span>
+                                    <span id="confirmSoftwareVersion" class="info-value">Version 1.2.3</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">机器人SN号</span>
+                                    <span id="confirmSnNumber" class="info-value">sn00130422308xxxx</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">机器人末端执行器</span>
+                                    <span id="confirmEndEffector" class="info-value">夹爪手</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">本地能力接配置</span>
+                                    <span class="info-value">未识别</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="info-card">
+                            <div class="info-card-header">连接信息</div>
+                            <div class="info-card-body">
+                                <div class="info-row">
+                                    <span class="info-label">接口</span>
+                                    <span class="info-value">网口</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">IP地址</span>
+                                    <span id="confirmIpAddress" class="info-value">192.168.192.1</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">连接状态</span>
+                                    <span class="info-value">成功</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">心跳监听</span>
+                                    <span class="info-value">成功</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">电量</span>
+                                    <span class="info-value">89%</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">在线时长</span>
+                                    <span class="info-value">1min</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 20px; text-align: center; color: #666; font-size: 0.875rem;">
+                        <span style="color: orange;">*</span> 系统检测到1需要<span style="color: #1a73e8;">被系统监听的新设备</span>，<span style="color: #1a73e8;">是否添加?</span>
+                    </p>
+                </div>
+                <div class="form-actions" style="justify-content: center; gap: 2rem;">
+                    <button type="button" class="btn btn-secondary" id="cancelDeviceConfirm" style="padding: 0.5rem 2rem;">暂不选择</button>
+                    <button type="button" class="btn btn-primary" id="confirmDeviceAdd" style="padding: 0.5rem 2rem;">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 暂时移除config.js避免冲突 -->
+    <!-- <script src="config.js"></script> -->
+    <script src="script.js"></script>
+</body>
+</html>
