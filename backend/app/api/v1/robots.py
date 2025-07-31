@@ -55,6 +55,14 @@ async def test_connection(robot: RobotCreate):
         # 创建临时ID用于SSH服务
         temp_id = f"test_{robot.ip_address}_{robot.port}"
         
+        # 首先验证网络环境
+        network_valid, network_message = await ssh_service.validate_network_environment(robot.ip_address)
+        if not network_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"设备不在同一网络下，无法连接: {network_message}"
+            )
+        
         # 尝试连接
         success, error = await ssh_service.connect(
             temp_id,
@@ -93,6 +101,9 @@ async def test_connection(robot: RobotCreate):
                 "software_version": robot_info.get("software_version", "未知"),
                 "sn_number": robot_info.get("sn_number", "未知"),
                 "end_effector_type": robot_info.get("end_effector_type", "未知")
+            },
+            "network_info": {
+                "network_validation": network_message
             }
         }
         

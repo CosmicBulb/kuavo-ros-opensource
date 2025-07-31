@@ -147,7 +147,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                     })
             
             elif data.get("type") == "ping":
-                await connection_manager.send_message(client_id, {
+                await connection_manager.send_message(client_id, message={
                     "type": "pong",
                     "timestamp": data.get("timestamp")
                 })

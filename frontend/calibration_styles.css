@@ -1,0 +1,814 @@
+/* KUAVO Studio 标定界面样式 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+}
+
+.app {
+    display: flex;
+    height: 100vh;
+}
+
+/* 左侧导航栏 */
+.sidebar {
+    width: 200px;
+    background: #fff;
+    border-right: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.sidebar-header h1 {
+    font-size: 20px;
+    color: #1976d2;
+    font-weight: 600;
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 20px 0;
+}
+
+.nav-group-title {
+    padding: 0 20px 10px;
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.nav-list {
+    list-style: none;
+}
+
+.nav-list li {
+    margin: 2px 10px;
+}
+
+.nav-list a {
+    display: block;
+    padding: 12px 20px;
+    color: #666;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.nav-list a:hover {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.nav-list .active a {
+    background: #e3f2fd;
+    color: #1976d2;
+    font-weight: 500;
+}
+
+/* 主内容区 */
+.main-content {
+    flex: 1;
+    padding: 30px;
+    overflow-y: auto;
+}
+
+/* 设备选择器 */
+.device-selector {
+    margin-bottom: 30px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.device-selector label {
+    font-weight: 500;
+    color: #333;
+}
+
+.device-select {
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 300px;
+    background: white;
+}
+
+.device-select:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+}
+
+/* 标定主界面 */
+.calibration-main {
+    background: white;
+    border-radius: 8px;
+    padding: 40px;
+    min-height: 600px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.calibration-cards {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    margin-bottom: 60px;
+}
+
+.calibration-card {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 30px;
+    width: 300px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.calibration-card:hover {
+    border-color: #1976d2;
+    box-shadow: 0 4px 20px rgba(25, 118, 210, 0.15);
+    transform: translateY(-2px);
+}
+
+.calibration-card.selected {
+    border-color: #1976d2;
+    background: #f8fbff;
+}
+
+.calibration-card .card-icon {
+    margin-bottom: 20px;
+}
+
+.calibration-card h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.calibration-card p {
+    color: #666;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* 底部操作区 */
+.bottom-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 40px;
+}
+
+.status-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ff9800;
+    font-size: 14px;
+}
+
+.btn-select-device {
+    padding: 12px 30px;
+    background: #666;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: not-allowed;
+    transition: all 0.2s;
+}
+
+.btn-select-device:not(:disabled) {
+    background: #1976d2;
+    cursor: pointer;
+}
+
+.btn-select-device:not(:disabled):hover {
+    background: #1565c0;
+}
+
+/* 标定流程界面 */
+.calibration-flow {
+    background: white;
+    border-radius: 8px;
+    padding: 30px;
+    min-height: 700px;
+}
+
+/* 步骤指示器 */
+.step-indicator {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 40px;
+    position: relative;
+}
+
+.step-indicator::before {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #e0e0e0;
+    z-index: 1;
+}
+
+.step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+    z-index: 2;
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    margin-bottom: 10px;
+    transition: all 0.3s;
+}
+
+.step-item.active .step-number {
+    background: #1976d2;
+    color: white;
+}
+
+.step-item.completed .step-number {
+    background: #4caf50;
+    color: white;
+}
+
+.step-label {
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+    font-weight: 500;
+}
+
+.step-item.active .step-label {
+    color: #1976d2;
+    font-weight: 600;
+}
+
+/* 步骤内容 */
+.step-content {
+    min-height: 500px;
+}
+
+.step-panel {
+    display: none;
+}
+
+.step-panel.active {
+    display: block;
+}
+
+/* 工具确认界面 */
+.tool-confirmations {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.tool-item {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.tool-item.confirmed {
+    background: #e8f5e8;
+    border-color: #4caf50;
+}
+
+.tool-image {
+    width: 80px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f0f0f0;
+    border-radius: 6px;
+    position: relative;
+}
+
+.tool-image img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 4px;
+}
+
+.tool-placeholder {
+    font-size: 24px;
+    color: #666;
+}
+
+.tool-info {
+    flex: 1;
+}
+
+.tool-info h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.tool-info p {
+    font-size: 12px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.tool-confirm-btn {
+    padding: 8px 16px;
+    background: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tool-confirm-btn:hover {
+    background: #1565c0;
+}
+
+.tool-confirm-btn:disabled {
+    background: #4caf50;
+    cursor: not-allowed;
+}
+
+/* 配置加载界面 */
+.config-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 400px;
+}
+
+.loading-indicator {
+    text-align: center;
+    max-width: 400px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e0e0e0;
+    border-top: 4px solid #1976d2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-indicator h3 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #1976d2;
+    width: 0%;
+    animation: progress 3s ease-in-out infinite;
+}
+
+@keyframes progress {
+    0% { width: 0%; }
+    50% { width: 70%; }
+    100% { width: 100%; }
+}
+
+.loading-logs {
+    text-align: left;
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #666;
+}
+
+.loading-logs p {
+    margin-bottom: 5px;
+}
+
+/* 标定选项 */
+.calibration-options {
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.option-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+.option-buttons .btn {
+    padding: 10px 20px;
+    border: 1px solid #ddd;
+    background: white;
+    color: #666;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.option-buttons .btn.active {
+    background: #1976d2;
+    color: white;
+    border-color: #1976d2;
+}
+
+.calibration-desc {
+    color: #666;
+    font-size: 14px;
+}
+
+/* 关节数据表格 */
+.joint-data-table {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#jointTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#jointTable thead {
+    background: #f8f9fa;
+}
+
+#jointTable th,
+#jointTable td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+#jointTable th {
+    font-weight: 600;
+    color: #333;
+    font-size: 14px;
+}
+
+#jointTable td {
+    font-size: 13px;
+    color: #666;
+}
+
+#jointTable tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.joint-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.joint-status.normal {
+    background: #e8f5e8;
+    color: #4caf50;
+}
+
+.joint-status.warning {
+    background: #fff3e0;
+    color: #ff9800;
+}
+
+.joint-status.error {
+    background: #ffebee;
+    color: #f44336;
+}
+
+/* 警告提示 */
+.calibration-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #fff3e0;
+    border: 1px solid #ffcc02;
+    border-radius: 6px;
+    margin-bottom: 30px;
+    font-size: 14px;
+    color: #f57c00;
+}
+
+/* 完成状态 */
+.completion-status {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.success-icon {
+    font-size: 60px;
+    color: #4caf50;
+    margin-bottom: 20px;
+}
+
+.completion-status h3 {
+    font-size: 20px;
+    color: #333;
+    margin-bottom: 30px;
+}
+
+.console-output {
+    background: #1e1e1e;
+    color: #00ff00;
+    padding: 20px;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    text-align: left;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 30px;
+}
+
+.completion-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+/* 头手标定准备界面 */
+.preparation-content {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.check-items {
+    margin-bottom: 40px;
+}
+
+.check-items h3 {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.check-list {
+    space-y: 10px;
+}
+
+.check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.check-item:last-child {
+    border-bottom: none;
+}
+
+.check-icon {
+    font-size: 16px;
+    margin-top: 2px;
+}
+
+.check-item span:last-child {
+    flex: 1;
+    font-size: 14px;
+    color: #666;
+    line-height: 1.5;
+}
+
+.tool-setup h3 {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.setup-images {
+    display: flex;
+    justify-content: center;
+}
+
+.setup-item {
+    text-align: center;
+    max-width: 500px;
+}
+
+.setup-image {
+    width: 200px;
+    height: 150px;
+    background: #f8f9fa;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 15px;
+}
+
+.setup-placeholder {
+    font-size: 48px;
+    color: #ccc;
+}
+
+.setup-item p {
+    font-size: 13px;
+    color: #666;
+    line-height: 1.5;
+    text-align: left;
+}
+
+/* 步骤操作按钮 */
+.step-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #1976d2;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #1565c0;
+}
+
+.btn-secondary {
+    background: #666;
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #555;
+}
+
+/* 警告按钮 */
+.btn-warning {
+    background: #ff9800;
+    color: white;
+}
+
+.btn-warning:hover:not(:disabled) {
+    background: #f57c00;
+}
+
+/* 信息按钮 */
+.btn-info {
+    background: #17a2b8;
+    color: white;
+}
+
+.btn-info:hover:not(:disabled) {
+    background: #138496;
+}
+
+/* 成功按钮 */
+.btn-success {
+    background: #28a745;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #218838;
+}
+
+.btn-success {
+    background: #4caf50;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #43a047;
+}
+
+.btn-danger {
+    background: #f44336;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #d32f2f;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+    .calibration-cards {
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+    }
+    
+    .tool-confirmations {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .app {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        height: auto;
+    }
+    
+    .main-content {
+        padding: 20px;
+    }
+    
+    .step-indicator {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    
+    .step-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+}

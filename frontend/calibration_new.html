@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KUAVO Studio - 机器人标定</title>
+    <link rel="stylesheet" href="calibration_styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 左侧导航栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>KUAVO Studio</h1>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-group">
+                    <div class="nav-group-title">设备管理</div>
+                    <ul class="nav-list">
+                        <li><a href="index.html">设备连接</a></li>
+                        <li class="active"><a href="calibration_new.html">机器人标定</a></li>
+                    </ul>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 顶部设备选择 -->
+            <div class="device-selector">
+                <label for="robotSelect">选择机器人</label>
+                <select id="robotSelect" class="device-select">
+                    <option value="">请选择需要标定的设备</option>
+                </select>
+            </div>
+
+            <!-- 标定主界面 -->
+            <div id="calibrationMain" class="calibration-main">
+                <div class="calibration-cards">
+                    <!-- 全身零点标定卡片 -->
+                    <div class="calibration-card" data-type="zero_point">
+                        <div class="card-icon">
+                            <!-- 机器人图标 -->
+                            <svg width="120" height="160" viewBox="0 0 120 160" fill="none">
+                                <!-- 机器人身体 -->
+                                <rect x="45" y="60" width="30" height="40" rx="5" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+                                <!-- 头部 -->
+                                <circle cx="60" cy="45" r="15" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+                                <!-- 眼睛 -->
+                                <circle cx="55" cy="42" r="2" fill="#1976D2"/>
+                                <circle cx="65" cy="42" r="2" fill="#1976D2"/>
+                                <!-- 左臂 -->
+                                <rect x="25" y="65" width="20" height="4" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <rect x="20" y="69" width="10" height="15" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <!-- 右臂 -->
+                                <rect x="75" y="65" width="20" height="4" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <rect x="90" y="69" width="10" height="15" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <!-- 左腿 -->
+                                <rect x="48" y="100" width="8" height="25" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <rect x="46" y="125" width="12" height="6" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <!-- 右腿 -->
+                                <rect x="64" y="100" width="8" height="25" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <rect x="62" y="125" width="12" height="6" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                
+                                <!-- 标注点 -->
+                                <text x="60" y="20" text-anchor="middle" fill="#1976D2" font-size="10">头部零点</text>
+                                <text x="30" y="45" text-anchor="middle" fill="#1976D2" font-size="8">手臂零点</text>
+                                <text x="90" y="45" text-anchor="middle" fill="#1976D2" font-size="8">手臂零点</text>
+                                <text x="52" y="148" text-anchor="middle" fill="#1976D2" font-size="8">腿部零点</text>
+                                <text x="68" y="148" text-anchor="middle" fill="#1976D2" font-size="8">腿部零点</text>
+                            </svg>
+                        </div>
+                        <div class="card-content">
+                            <h3>全身零点标定</h3>
+                            <p>标定机器人的初始零点位置</p>
+                        </div>
+                    </div>
+
+                    <!-- 头手标定卡片 -->
+                    <div class="calibration-card" data-type="head_hand">
+                        <div class="card-icon">
+                            <!-- 头手标定图标 -->
+                            <svg width="120" height="160" viewBox="0 0 120 160" fill="none">
+                                <!-- 机器人头部 -->
+                                <circle cx="60" cy="40" r="18" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+                                <!-- 摄像头 -->
+                                <rect x="52" y="32" width="16" height="8" rx="2" fill="#FF5722"/>
+                                <text x="60" y="15" text-anchor="middle" fill="#1976D2" font-size="10">头部标定</text>
+                                
+                                <!-- AprilTag标定板 -->
+                                <rect x="35" y="80" width="50" height="40" fill="white" stroke="#333" stroke-width="2"/>
+                                <rect x="40" y="85" width="40" height="30" fill="#000"/>
+                                <rect x="45" y="90" width="30" height="20" fill="white"/>
+                                <text x="60" y="135" text-anchor="middle" fill="#1976D2" font-size="10">AprilTag</text>
+                                
+                                <!-- 手臂和标定工具 -->
+                                <rect x="20" y="60" width="25" height="4" rx="2" fill="#E3F2FD" stroke="#1976D2" stroke-width="1"/>
+                                <circle cx="15" cy="62" r="6" fill="#FF5722" stroke="#333" stroke-width="1"/>
+                                <text x="15" y="52" text-anchor="middle" fill="#1976D2" font-size="8">手臂标定</text>
+                            </svg>
+                        </div>
+                        <div class="card-content">
+                            <h3>头手标定 (ETH)</h3>
+                            <p>标定头部视觉相对于手臂零点的坐标关系</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 底部提示和操作 -->
+                <div class="bottom-actions">
+                    <div class="status-hint">
+                        <span class="hint-icon">⚠️</span>
+                        <span class="hint-text">仪标定在线状态设备</span>
+                    </div>
+                    <button id="selectDeviceBtn" class="btn-select-device" disabled>
+                        请先选择需要标定的机器人
+                    </button>
+                </div>
+            </div>
+
+            <!-- 零点标定流程界面 -->
+            <div id="zeroPointCalibration" class="calibration-flow" style="display: none;">
+                <!-- 步骤指示器 -->
+                <div class="step-indicator">
+                    <div class="step-item active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-label">确认安装工具</div>
+                    </div>
+                    <div class="step-item" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-label">读取当前配置</div>
+                    </div>
+                    <div class="step-item" data-step="3">
+                        <div class="step-number">3</div>
+                        <div class="step-label">初始化零点</div>
+                    </div>
+                    <div class="step-item" data-step="4">
+                        <div class="step-number">4</div>
+                        <div class="step-label">移除辅助工装</div>
+                    </div>
+                </div>
+
+                <!-- 步骤内容区 -->
+                <div class="step-content">
+                    <!-- 步骤1: 确认安装工具 -->
+                    <div id="step1Content" class="step-panel active">
+                        <div class="tool-confirmations">
+                            <div class="tool-item" data-tool="0">
+                                <div class="tool-image">
+                                    <img src="images/install_leg_tools.jpg" alt="安装工装" onerror="this.style.display='none'">
+                                    <div class="tool-placeholder">🔧</div>
+                                </div>
+                                <div class="tool-info">
+                                    <h4>安装工装</h4>
+                                    <p>将辅助工装插入腿部的插销中</p>
+                                </div>
+                                <button class="tool-confirm-btn">确认</button>
+                            </div>
+                            
+                            <div class="tool-item" data-tool="1">
+                                <div class="tool-image">
+                                    <img src="images/install_foot_tools.jpg" alt="安装工装" onerror="this.style.display='none'">
+                                    <div class="tool-placeholder">🔧</div>
+                                </div>
+                                <div class="tool-info">
+                                    <h4>安装工装</h4>
+                                    <p>将辅助工装插入脚部的插销中</p>
+                                </div>
+                                <button class="tool-confirm-btn">确认</button>
+                            </div>
+                            
+                            <div class="tool-item" data-tool="2">
+                                <div class="tool-image">
+                                    <img src="images/adjust_arms.jpg" alt="摆好手臂" onerror="this.style.display='none'">
+                                    <div class="tool-placeholder">🤖</div>
+                                </div>
+                                <div class="tool-info">
+                                    <h4>摆好手臂</h4>
+                                    <p>手臂自然下垂，摆正两边</p>
+                                </div>
+                                <button class="tool-confirm-btn">确认</button>
+                            </div>
+                            
+                            <div class="tool-item" data-tool="3">
+                                <div class="tool-image">
+                                    <img src="images/adjust_head.jpg" alt="摆正头部" onerror="this.style.display='none'">
+                                    <div class="tool-placeholder">🤖</div>
+                                </div>
+                                <div class="tool-info">
+                                    <h4>摆正头部</h4>
+                                    <p>头部左右居中，头部都面保持直立</p>
+                                </div>
+                                <button class="tool-confirm-btn">确认</button>
+                            </div>
+                        </div>
+                        
+                        <div class="step-actions">
+                            <button class="btn btn-secondary" onclick="goBackToMain()">返回</button>
+                            <button id="nextStepBtn" class="btn btn-primary" disabled>下一步</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤2: 读取当前配置 -->
+                    <div id="step2Content" class="step-panel">
+                        <div class="config-loading">
+                            <div class="loading-indicator">
+                                <div class="spinner"></div>
+                                <h3>数据标零覆盖...</h3>
+                                <div class="progress-bar">
+                                    <div class="progress-fill"></div>
+                                </div>
+                                <div class="loading-logs">
+                                    <p>·sence initialize......completed</p>
+                                    <p>·model import......completed</p>
+                                    <p>·device .......</p>
+                                </div>
+                                <div class="config-info" style="margin-top: 20px; color: #666; font-size: 14px;"></div>
+                            </div>
+                        </div>
+                        
+                    </div>
+
+                    <!-- 步骤3: 初始化零点 -->
+                    <div id="step3Content" class="step-panel">
+                        <h2 style="margin-bottom: 20px;">初始化零点</h2>
+                        
+                        <!-- 全身零点标定和关节零点标定区域 -->
+                        <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                            <!-- 全身零点标定 -->
+                            <div style="flex: 1; padding: 20px; background: #f5f5f5; border-radius: 8px;">
+                                <h3 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 500;">全身零点标定</h3>
+                                <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">标定当前位机器人整体位姿为初始零点</p>
+                                <button id="oneClickZeroBtn" class="btn btn-warning" style="width: 100%;">一键标定</button>
+                            </div>
+                            
+                            <!-- 关节零点标定 -->
+                            <div style="flex: 1; padding: 20px; background: #f5f5f5; border-radius: 8px;">
+                                <h3 style="margin: 0 0 10px 0; font-size: 16px; font-weight: 500;">关节零点标定</h3>
+                                <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">单独修改关节参数，点击「关节调试」，调试完成后自动保存标定</p>
+                                <button id="jointDebugBtn" class="btn btn-info" style="width: 100%;">关节调试</button>
+                            </div>
+                        </div>
+
+                        <!-- 关节数据表格 -->
+                        <div class="joint-data-table">
+                            <table id="jointTable">
+                                <thead>
+                                    <tr>
+                                        <th>关节</th>
+                                        <th>当前位置</th>
+                                        <th>零点位置</th>
+                                        <th>偏移量</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- 动态生成关节数据行 -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="calibration-warning">
+                            <span class="warning-icon">⚠️</span>
+                            <span>提示：修改参数时，整建议一次不超过0.05</span>
+                        </div>
+
+
+                        <div class="step-actions">
+                            <button class="btn btn-secondary" onclick="goToPreviousStep()">上一步</button>
+                            <button id="nextToStep4Btn" class="btn btn-primary">下一步</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤4: 移除辅助工装 -->
+                    <div id="step4Content" class="step-panel">
+                        <div class="calibration-content" style="display: flex; gap: 40px; align-items: flex-start;">
+                            <!-- 左侧：位置信息 -->
+                            <div style="flex: 1;">
+                                <!-- 标定位置数据显示 -->
+                                <div class="position-data-output" style="background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 500px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; color: #ffffff; white-space: pre-wrap;">
+                                    <!-- 位置数据会显示在这里 -->
+                                </div>
+                            </div>
+                            
+                            <!-- 右侧：完成状态 -->
+                            <div style="width: 300px; text-align: center; padding-top: 100px;">
+                                <div class="completion-status" id="completionStatus">
+                                    <div class="success-icon" style="font-size: 64px; margin-bottom: 20px; color: #4caf50;">✅</div>
+                                    <h3 style="color: #333; font-size: 18px; margin-bottom: 30px;">标定完成！可移除辅助工装</h3>
+                                    <button id="previewResultBtn" class="btn btn-primary" style="width: 200px; margin-bottom: 10px;">预览标定结果</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 30px;">
+                            <p style="text-align: center; color: #ff6b6b; margin-bottom: 20px; font-size: 14px;">
+                                提示：「预览前」关注好机器人周围环境，以免摔倒
+                            </p>
+                            
+                            <div style="text-align: center;">
+                                <button class="btn btn-secondary" disabled style="margin-right: 10px;">零点数据已覆盖</button>
+                                <button id="restartCalibrationBtn" class="btn btn-secondary" style="margin-right: 10px;">重新标定</button>
+                                <button id="confirmCompletionBtn" class="btn btn-success">保存零点</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 头手标定流程界面 -->
+            <div id="headHandCalibration" class="calibration-flow" style="display: none;">
+                <!-- 步骤指示器 -->
+                <div class="step-indicator">
+                    <div class="step-item active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-label">标定准备</div>
+                    </div>
+                    <div class="step-item" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-label">头部&手臂标定</div>
+                    </div>
+                    <div class="step-item" data-step="3">
+                        <div class="step-number">3</div>
+                        <div class="step-label">标定结果</div>
+                    </div>
+                </div>
+
+                <!-- 头手标定步骤内容 -->
+                <div class="step-content">
+                    <!-- 步骤1: 标定准备 -->
+                    <div id="headHandStep1" class="step-panel active">
+                        <div class="preparation-content">
+                            <div class="check-items">
+                                <h3>基础检查：</h3>
+                                <div class="check-list">
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>权限问题：确保有sudo权限启动roscore的SSH连接</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>机器人设置：确认上电机器人后清理进程</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>网络连接：确保下位机能正常连接上位机</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>标定工具：确保标定工具正确安装且AprilTag可被识别</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>环境验证：确保虚拟环境已正确创建(运行 create_venv.sh)</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>AprilTag测量：确保相机能检测到AprilTag，光照条件适宜</span>
+                                    </div>
+                                    <div class="check-item">
+                                        <span class="check-icon">⏳</span>
+                                        <span>rosbag文件：确保hand_move_demo_left.bag和hand_move_demo_right.bag文件存在正确路径</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="tool-setup">
+                                <h3>固定标定板/Apriltag：</h3>
+                                <div class="setup-images">
+                                    <div class="setup-item">
+                                        <div class="setup-image">
+                                            <img src="images/apriltag_setup.jpg" alt="AprilTag设置" onerror="this.style.display='none'">
+                                            <div class="setup-placeholder">📷</div>
+                                        </div>
+                                        <p>在标定板上工具上正确贴好AprilTag (ID=0)<br>
+                                        AprilTag尺寸大小（默认为10厘米）打印正确的ArUco标记（默认ID为777）<br>
+                                        将标定板安装标定工具上，并且保定标定工装在机器人末端执行器上</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="step-actions">
+                            <button class="btn btn-secondary" onclick="goBackToMain()">返回</button>
+                            <button id="headHandNextBtn" class="btn btn-primary">下一步</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤2: 头部&手臂标定 -->
+                    <div id="headHandStep2" class="step-panel">
+                        <div class="calibration-execution">
+                            <h3 style="text-align: center; margin-bottom: 30px;">注意事项：</h3>
+                            
+                            <!-- 注意事项列表 -->
+                            <div class="attention-items" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+                                <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                                    <li><strong>权限问题：</strong>
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            <li>确保有sudo权限启动roscore的SSH连接</li>
+                                            <li>上位机需要root权限清理进程，确保root密码设置正确</li>
+                                        </ul>
+                                    </li>
+                                    <li><strong>网络连接：</strong> 确保下位机能正常连接上位机</li>
+                                    <li><strong>标定工具：</strong> 确保标定工具正确安装且AprilTag可被识别</li>
+                                    <li><strong>环境验证：</strong> 确保虚拟环境已正确创建(运行 create_venv.sh)</li>
+                                    <li><strong>AprilTag检测：</strong> 确保相机能检测到AprilTag，光照条件适宜</li>
+                                    <li><strong>rosbag文件：</strong> 确保手臂标定所需的rosbag文件位于正确位置
+                                        <ul style="margin: 5px 0; padding-left: 20px;">
+                                            <li>./scripts/joint_cali/bags/hand_move_demo_left.bag</li>
+                                            <li>./scripts/joint_cali/bags/hand_move_demo_right.bag</li>
+                                        </ul>
+                                    </li>
+                                </ol>
+                            </div>
+
+                            <!-- 一键标零按钮 -->
+                            <div style="text-align: center; margin-bottom: 30px;">
+                                <button id="headHandOneClickBtn" class="btn btn-primary" style="font-size: 16px; padding: 12px 40px;">一键标零</button>
+                            </div>
+
+                            <!-- 执行进度和日志 -->
+                            <div id="headHandProgress" style="margin-top: 20px; display: none;">
+                                <div class="progress-section">
+                                    <h4 style="margin-bottom: 15px;">环境设置完成，开始头部标定...</h4>
+                                    <div class="progress-bar" style="background: #e9ecef; border-radius: 4px; height: 8px; margin-bottom: 15px;">
+                                        <div id="headHandProgressBar" class="progress-fill" style="background: #007bff; height: 100%; width: 0%; border-radius: 4px; transition: width 0.3s;"></div>
+                                    </div>
+                                    <div class="execution-logs" style="background: #1a1a1a; color: #ffffff; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.4;">
+                                        <div id="headHandLogOutput">
+                                            <p>·sence initialize......completed</p>
+                                            <p>·model import......completed</p>  
+                                            <p>·device .......</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="step-actions">
+                            <button class="btn btn-secondary" onclick="goToPreviousHeadHandStep()">上一步</button>
+                            <button id="headHandNextToStep3" class="btn btn-primary" disabled>下一步</button>
+                        </div>
+                    </div>
+
+                    <!-- 步骤3: 标定结果 -->
+                    <div id="headHandStep3" class="step-panel">
+                        <div class="calibration-result">
+                            <!-- 成功状态 -->
+                            <div id="headHandSuccessResult" class="result-content" style="text-align: center; padding: 60px 20px; display: none;">
+                                <div class="success-icon" style="font-size: 80px; color: #28a745; margin-bottom: 20px;">✅</div>
+                                <h2 style="color: #333; margin-bottom: 40px;">🎉 所有标定完成</h2>
+                                
+                                <div style="margin-bottom: 40px;">
+                                    <button id="headHandSaveBtn" class="btn btn-primary" style="margin-right: 15px; padding: 12px 30px;">保存零点</button>
+                                    <button id="headHandRestartBtn" class="btn btn-secondary" style="padding: 12px 30px;">重新标定</button>
+                                </div>
+                            </div>
+
+                            <!-- 失败状态 -->
+                            <div id="headHandErrorResult" class="result-content" style="text-align: center; padding: 40px 20px; display: none;">
+                                <div class="error-icon" style="font-size: 80px; color: #dc3545; margin-bottom: 20px;">❌</div>
+                                <h2 style="color: #333; margin-bottom: 30px;">标定失败</h2>
+                                
+                                <div class="troubleshooting" style="text-align: left; max-width: 800px; margin: 0 auto;">
+                                    <h3 style="color: #dc3545;">故障排查</h3>
+                                    
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">1. 保存零点</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>检查网络连接</li>
+                                            <li>确认上位机IP地址和密码</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">2. AprilTag识别失败：</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>检查相机是否正常工作</li>
+                                            <li>确认AprilTag是否在相机视野内</li>
+                                            <li>检查光照条件</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">3. 虚拟环境问题：</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>运行 sudo bash scripts/joint_cali/create_venv.sh 重新安装</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">4. 标定数据不足：</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>如果收集到的数据点数量为0，检查AprilTag是否被正确检测</li>
+                                            <li>检查头部追踪是否正常工作</li>
+                                            <li>调整rosbag播放速率（使用 --rate 参数）</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">5. 手臂标定失败：</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>检查rosbag文件是否存在且可播放</li>
+                                            <li>确认标定环境中的机器人位置与录制rosbag时一致</li>
+                                            <li>检查AprilTag立方体是否稳固安装</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">6. 第二次标定失败</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>若是出现 `跳过机器人控制系统启动`，需要开启新终端执行标定</li>
+                                            <li>在 `screen -r robot_control` 中结束程序运行</li>
+                                            <li>第二次标定卡在 `是否继续头部标定？(y/N):`，需要重启机器</li>
+                                        </ul>
+                                    </div>
+
+                                    <div class="trouble-item" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                                        <h4 style="color: #333; margin-bottom: 10px;">7. 标定结果</h4>
+                                        <ul style="margin: 0; padding-left: 20px;">
+                                            <li>运行第一次标定后，需要在 `screen -r robot_control` 中结束程序运行</li>
+                                            <li>第二次标定卡在 是否继续头部标定？(y/N):，需要重启机器</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 30px;">
+                                    <button id="headHandRetryBtn" class="btn btn-warning" style="padding: 12px 30px;">重新标定</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="calibration_script.js"></script>
+</body>
+</html>

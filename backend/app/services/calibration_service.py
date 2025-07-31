@@ -74,10 +74,16 @@ class CalibrationService:
                 (r"请确认机器人已经上电.*回车继续", "\n"),
                 (r"机器人将开始运动.*是否继续.*[\(（][yY]/[nN][\)）][:：]?", "y"),
                 (r"是否继续头部标定.*[\(（][yY]/[nN][\)）][:：]?", "y"),
+                # 头部标定完成后的保存确认
+                (r"按下回车键继续保存文件.*ctrl\+c退出", "\n"),
+                # 手臂标定完成后的确认
+                (r"标定已完成.*是否应用新的零点位置", "y"),
+                (r"输入选项.*y/yes.*确认并保存标定结果", "y"),
                 (r"标定完成.*按任意键退出", "\n"),
-                # 增加更多可能的提示格式
+                # 通用提示格式
                 (r"按回车键继续", "\n"),
-                (r"按Enter继续", "\n")
+                (r"按Enter继续", "\n"),
+                (r"Press Enter", "\n")
             ]
         }
     
@@ -116,9 +122,13 @@ class CalibrationService:
             session.status = "running"
             await self._broadcast_status(session)
             
-            # 获取SSH连接
+            # 获取SSH连接（模拟器模式下自动建立连接）
             if session.robot_id not in ssh_service.connections:
-                raise Exception("机器人未连接")
+                if ssh_service.use_simulator:
+                    # 模拟器模式下自动建立连接
+                    ssh_service.connections[session.robot_id] = "simulator"
+                else:
+                    raise Exception("机器人未连接")
             
             # 如果使用模拟器
             if ssh_service.use_simulator:

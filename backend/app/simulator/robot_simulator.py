@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import threading
 import queue
+from .mock_config_files import get_mock_arms_zero_yaml, get_mock_offset_csv
 
 
 class RobotSimulator:
@@ -13,11 +14,18 @@ class RobotSimulator:
     
     def __init__(self):
         self.is_connected = False
+        self.is_upper_connected = False  # 上位机连接状态
         self.robot_info = {
             "model": "Kuavo 4 pro",
             "sn": "SIM123456789",
             "end_effector": "灵巧手",
             "version": "1.2.3-sim"
+        }
+        self.upper_info = {
+            "model": "Upper Computer",
+            "python_version": "3.8.10",
+            "opencv_version": "4.5.2",
+            "apriltag_available": True
         }
         self.processes = {}
         self.running_scripts = {}
@@ -38,15 +46,36 @@ class RobotSimulator:
         return True, None
     
     def disconnect(self) -> bool:
-        """模拟断开连接"""
+        """模拟断开机器人连接"""
         self.is_connected = False
         # 停止所有运行的脚本
         for script_id in list(self.running_scripts.keys()):
             self.stop_script(script_id)
         return True
     
+    def connect_upper_computer(self, host: str, port: int, username: str, password: str) -> tuple[bool, Optional[str]]:
+        """模拟上位机SSH连接"""
+        # 模拟验证
+        if password == "wrong_password":
+            return False, "上位机认证失败，请检查用户名和密码"
+        
+        if host == "unreachable.host":
+            return False, "上位机连接超时"
+        
+        # 模拟检查上位机状态
+        if host != "192.168.26.1" and not host.startswith("192.168.26."):
+            return False, "上位机IP地址不在预期范围内"
+        
+        self.is_upper_connected = True
+        return True, None
+    
+    def disconnect_upper_computer(self) -> bool:
+        """模拟断开上位机连接"""
+        self.is_upper_connected = False
+        return True
+    
     def execute_command(self, command: str) -> tuple[bool, str, str]:
-        """模拟执行命令"""
+        """模拟在机器人执行命令"""
         if not self.is_connected:
             return False, "", "未连接"
         
@@ -60,8 +89,103 @@ class RobotSimulator:
         elif "echo $ROBOT_VERSION" in command:
             return True, "45", ""
         
+        # 模拟读取零点配置文件
+        elif "cat" in command and "arms_zero.yaml" in command:
+            return True, get_mock_arms_zero_yaml(), ""
+        
+        elif "cat" in command and "offset.csv" in command:
+            return True, get_mock_offset_csv(), ""
+        
+        # 模拟文件存在检查
+        elif "test -f" in command and "arms_zero.yaml" in command:
+            return True, "ok", ""
+        
+        elif "test -f" in command and "offset.csv" in command:
+            return True, "ok", ""
+        
+        # 模拟创建目录
+        elif "mkdir -p" in command:
+            return True, "", ""
+        
+        # 模拟文件写入
+        elif "cat >" in command or "mv" in command:
+            return True, "", ""
+        
+        # === 头手标定环境检查命令支持 ===
+        
+        # 1. sudo权限检查
+        elif "sudo -n true" in command:
+            return True, "ok", ""
+        
+        # 2. roscore检查
+        elif "which roscore" in command:
+            return True, "/opt/ros/noetic/bin/roscore", ""
+        
+        # 3. 虚拟环境检查
+        elif "test -d /home/lab/kuavo_venv/joint_cali" in command:
+            return True, "exists", ""
+        
+        # 4. 相机设备检查
+        elif "ls /dev/video*" in command and "wc -l" in command:
+            return True, "2", ""  # 模拟有2个相机设备
+        
+        # 5. AprilTag配置文件检查  
+        elif "test -f" in command and "tags.yaml" in command:
+            return True, "exists", ""
+        
+        # 6. rosbag文件检查
+        elif "ls" in command and "hand_move_demo_*.bag" in command and "wc -l" in command:
+            return True, "2", ""  # 模拟有2个bag文件 (left, right)
+        
+        # 7. 头手标定备份文件检查
+        elif "ls" in command and "arms_zero.yaml*.bak" in command:
+            return True, "/home/lab/.config/lejuconfig/arms_zero.yaml.head_cali.bak", ""
+        
+        # 8. 文件时间戳检查
+        elif "stat -c %y" in command and "head_cali.bak" in command:
+            return True, "2024-01-30 15:30:45.123456789 +0800", ""
+        
+        # 9. expect工具检查和安装
+        elif "which expect" in command:
+            return True, "/usr/bin/expect", ""
+        elif "apt-get update" in command and "apt-get install" in command and "expect" in command:
+            return True, "expect installed successfully", ""
+        
         else:
-            return True, f"Command executed: {command}", ""
+            return True, f"Robot command executed: {command}", ""
+    
+    def execute_upper_command(self, command: str) -> tuple[bool, str, str]:
+        """模拟在上位机执行命令"""
+        if not self.is_upper_connected:
+            return False, "", "上位机未连接"
+        
+        # 模拟上位机命令响应
+        if "python3 --version" in command:
+            return True, "Python 3.8.10", ""
+        
+        elif "which python3" in command:
+            return True, "/usr/bin/python3", ""
+        
+        elif "pip list | grep opencv" in command:
+            return True, "opencv-python                  4.5.2.54", ""
+        
+        elif "pip list | grep apriltag" in command:
+            return True, "apriltag                      3.1.4", ""
+        
+        elif "ls -la /dev/video*" in command:
+            return True, "crw-rw----+ 1 root video 81, 0 Jan 30 10:00 /dev/video0\ncrw-rw----+ 1 root video 81, 1 Jan 30 10:00 /dev/video1", ""
+        
+        elif "nvidia-smi" in command:
+            return True, "NVIDIA-SMI 470.86       Driver Version: 470.86       CUDA Version: 11.4", ""
+        
+        elif "rosrun apriltag_detection apriltag_detector.py" in command:
+            return True, "AprilTag detector started successfully", ""
+        
+        elif "pkill -f apriltag" in command:
+            return True, "AprilTag processes terminated", ""
+        
+        else:
+            return True, f"Upper computer command executed: {command}", ""
     
     def start_calibration_script(self, script_type: str) -> str:
         """启动标定脚本"""
@@ -217,35 +341,30 @@ class ZeroPointCalibrationScript(CalibrationScript):
         self._write_output("\n开始使能电机...")
         await asyncio.sleep(1)
         
-        # 模拟电机位置输出
-        self._write_output("0000003041: Slave 1 actual position 9.6946716,Encoder 63535.0000000")
-        self._write_output("0000003051: Rated current 39.6000000")
-        self._write_output("0000003061: Slave 2 actual position 3.9207458,Encoder 14275.0000000")
-        self._write_output("0000003071: Rated current 11.7900000")
-        self._write_output("0000003081: Slave 3 actual position 12.5216674,Encoder 45590.0000000")
-        self._write_output("0000003091: Rated current 42.4300000")
-        self._write_output("0000003101: Slave 4 actual position -37.2605896,Encoder -244191.0000000")
-        self._write_output("0000003111: Rated current 42.4300000")
-        self._write_output("0000003121: Slave 5 actual position 15.8138275,Encoder 207275.0000000")
-        self._write_output("0000003131: Rated current 8.4900000")
-        self._write_output("0000003142: Slave 6 actual position -2.7354431,Encoder -35854.0000000")
-        self._write_output("0000003151: Rated current 8.4900000")
-        self._write_output("0000003161: Slave 7 actual position 5.8642578,Encoder 38432.0000000")
-        self._write_output("0000003171: Rated current 39.6000000")
-        self._write_output("0000003183: Slave 8 actual position -16.8491821,Encoder -61346.0000000")
-        self._write_output("0000003192: Rated current 11.7900000")
-        self._write_output("0000003201: Slave 9 actual position -18.9975585,Encoder -69168.0000000")
-        self._write_output("0000003211: Rated current 42.4300000")
-        self._write_output("0000003221: Slave 10 actual position -64.5283508,Encoder -422893.0000000")
-        self._write_output("0000003231: Rated current 42.4300000")
-        self._write_output("0000003241: Slave 11 actual position -31.0607147,Encoder -407119.0000000")
-        self._write_output("0000003251: Rated current 8.4900000")
-        self._write_output("0000003261: Slave 12 actual position 49.7427368,Encoder 651988.0000000")
-        self._write_output("0000003272: Rated current 8.4900000")
-        self._write_output("0000003281: Slave 13 actual position 26.8544311,Encoder 97774.0000000")
-        self._write_output("0000003291: Rated current 14.9900000")
-        self._write_output("0000003301: Slave 14 actual position -19.9171142,Encoder -72516.0000000")
-        self._write_output("0000003311: Rated current 14.9900000")
+        # 模拟完整的电机位置输出
+        slave_positions = [
+            (1, 9.6946716, 63535.0, 39.6),
+            (2, 3.9207458, 14275.0, 11.79),
+            (3, 12.5216674, 45590.0, 42.43),
+            (4, -37.2605896, -244191.0, 42.43),
+            (5, 15.8138275, 207275.0, 8.49),
+            (6, -2.7354431, -35854.0, 8.49),
+            (7, 5.8642578, 38432.0, 39.6),
+            (8, -16.8491821, -61346.0, 11.79),
+            (9, -18.9975585, -69168.0, 42.43),
+            (10, -64.5283508, -422893.0, 42.43),
+            (11, -31.0607147, -407119.0, 8.49),
+            (12, 49.7427368, 651988.0, 8.49),
+            (13, 26.8544311, 97774.0, 14.99),
+            (14, -19.9171142, -72516.0, 14.99)
+        ]
+        
+        for slave_id, position, encoder, current in slave_positions:
+            timestamp = 3040 + slave_id * 10
+            self._write_output(f"{timestamp:010d}1: Slave {slave_id:02d} actual position {position:.7f},Encoder {encoder:.7f}")
+            await asyncio.sleep(0.1)
+            self._write_output(f"{timestamp+5:010d}1: Rated current {current:.7f}")
+            await asyncio.sleep(0.1)
         
         await asyncio.sleep(1)
         
@@ -333,14 +452,10 @@ class HeadHandCalibrationScript(CalibrationScript):
         self._write_output("✓ 标定工具检查通过")
         await asyncio.sleep(1)
         
-        # 步骤3：询问是否开始
+        # 步骤3：自动开始（模拟自动化）
         self._write_output("\n是否开始一键标定流程？(y/n): ")
-        
-        response = await self._wait_for_input()
-        if response.lower() != 'y':
-            self._write_output("用户取消操作")
-            self.is_running = False
-            return
+        self._write_output("自动响应: y")
+        await asyncio.sleep(0.5)
         
         # 步骤4：启动下位机
         self._write_output("\n步骤2: 准备启动下位机launch文件...")
@@ -351,45 +466,40 @@ class HeadHandCalibrationScript(CalibrationScript):
             await asyncio.sleep(0.5)
         self._write_output("✓ 编译完成")
         
-        # 步骤5：启动机器人控制系统
+        # 步骤5：启动机器人控制系统（自动响应）
         self._write_output("\n步骤2.5: 启动机器人控制系统...")
         self._write_output("是否启动机器人控制系统？(y/N): ")
+        self._write_output("自动响应: y")
+        await asyncio.sleep(0.5)
         
-        response = await self._wait_for_input()
-        if response.lower() != 'y':
-            self._write_output("跳过机器人控制系统启动")
-        else:
-            self._write_output("准备启动机器人控制系统...")
-            self._write_output("在后台启动机器人控制系统...")
-            await asyncio.sleep(2)
-            self._write_output("✓ 机器人控制系统已在后台启动")
-            
-            # 等待缩腿
-            self._write_output("\n机器人状态确认")
-            self._write_output("请观察机器人状态：")
-            self._write_output("- 机器人应该会有缩腿动作")
-            self._write_output("- 等待机器人完成缩腿动作后，需要发送站立命令")
-            self._write_output("\n请确认机器人已经上电，按回车继续...")
-            
-            await self._wait_for_input()
-            
-            self._write_output("机器人将开始运动，是否继续？(y/n): ")
-            response = await self._wait_for_input()
-            if response.lower() != 'y':
-                self._write_output("用户取消")
-                self.is_running = False
-                return
-            
-            # 模拟缩腿和站立
-            self._write_output("\n机器人开始缩腿...")
-            await asyncio.sleep(3)
-            self._write_output("缩腿完成")
-            
-            self._write_output("\n发送站立命令 'o' 到机器人控制系统...")
-            await asyncio.sleep(2)
-            self._write_output("机器人开始站立...")
-            await asyncio.sleep(3)
-            self._write_output("✓ 机器人站立完成")
+        self._write_output("准备启动机器人控制系统...")
+        self._write_output("在后台启动机器人控制系统...")
+        await asyncio.sleep(2)
+        self._write_output("✓ 机器人控制系统已在后台启动")
+        
+        # 等待缩腿（自动响应）
+        self._write_output("\n机器人状态确认")
+        self._write_output("请观察机器人状态：")
+        self._write_output("- 机器人应该会有缩腿动作")
+        self._write_output("- 等待机器人完成缩腿动作后，需要发送站立命令")
+        self._write_output("\n请确认机器人已经上电，按回车继续...")
+        self._write_output("自动响应: 回车")
+        await asyncio.sleep(1)
+        
+        self._write_output("机器人将开始运动，是否继续？(y/n): ")
+        self._write_output("自动响应: y")
+        await asyncio.sleep(0.5)
+        
+        # 模拟缩腿和站立
+        self._write_output("\n机器人开始缩腿...")
+        await asyncio.sleep(3)
+        self._write_output("缩腿完成")
+        
+        self._write_output("\n发送站立命令 'o' 到机器人控制系统...")
+        await asyncio.sleep(2)
+        self._write_output("机器人开始站立...")
+        await asyncio.sleep(3)
+        self._write_output("✓ 机器人站立完成")
         
         # 步骤6：启动AprilTag识别
         self._write_output("\n步骤3: 启动上位机AprilTag识别系统...")
@@ -399,40 +509,38 @@ class HeadHandCalibrationScript(CalibrationScript):
         await asyncio.sleep(1)
         self._write_output("✓ 上位机AprilTag识别系统启动完成")
         
-        # 步骤7：头部标定
+        # 步骤7：头部标定（自动响应）
         self._write_output("\n步骤4: 启动头部标定...")
         self._write_output("请确认：")
         self._write_output("1. 标定工具已安装在机器人躯干上")
         self._write_output("2. AprilTag已正确贴在标定工具上")
         self._write_output("3. 上位机相机正常工作")
         self._write_output("是否继续头部标定？(y/N): ")
+        self._write_output("自动响应: y")
+        await asyncio.sleep(0.5)
         
-        response = await self._wait_for_input()
-        if response.lower() == 'y':
-            self._write_output("\n开始头部标定...")
-            self._write_output("激活虚拟环境和设置环境...")
-            await asyncio.sleep(1)
-            
-            # 模拟头部标定过程
-            self._write_output("执行头部标定...")
-            self._write_output("移动头部到标定位置1...")
+        self._write_output("\n开始头部标定...")
+        self._write_output("激活虚拟环境和设置环境...")
+        await asyncio.sleep(1)
+        
+        # 模拟头部标定过程
+        self._write_output("执行头部标定...")
+        self._write_output("移动头部到标定位置1...")
+        await asyncio.sleep(2)
+        self._write_output("采集数据点1/5")
+        await asyncio.sleep(1)
+        
+        for i in range(2, 6):
+            self._write_output(f"移动头部到标定位置{i}...")
             await asyncio.sleep(2)
-            self._write_output("采集数据点1/5")
+            self._write_output(f"采集数据点{i}/5")
             await asyncio.sleep(1)
-            
-            for i in range(2, 6):
-                self._write_output(f"移动头部到标定位置{i}...")
-                await asyncio.sleep(2)
-                self._write_output(f"采集数据点{i}/5")
-                await asyncio.sleep(1)
-            
-            self._write_output("\n计算标定参数...")
-            await asyncio.sleep(2)
-            self._write_output("标定误差: 0.003mm (良好)")
-            self._write_output("✓ 头部标定完成！")
-            self._write_output("备份文件: /home/lab/.config/lejuconfig/arms_zero.yaml.head_cali.bak")
-        else:
-            self._write_output("跳过头部标定")
+        
+        self._write_output("\n计算标定参数...")
+        await asyncio.sleep(2)
+        self._write_output("标定误差: 0.003mm (良好)")
+        self._write_output("✓ 头部标定完成！")
+        self._write_output("备份文件: /home/lab/.config/lejuconfig/arms_zero.yaml.head_cali.bak")
         
         # 步骤8：手臂标定
         self._write_output("\n步骤5: 启动手臂标定...")
@@ -450,8 +558,8 @@ class HeadHandCalibrationScript(CalibrationScript):
         
         self._write_output("\n手臂标定完成")
         self._write_output("标定完成，按任意键退出...")
-        
-        await self._wait_for_input()
+        self._write_output("自动响应: 回车")
+        await asyncio.sleep(1)
         
         # 完成
         self._write_output("\n" + "="*51)
@@ -466,6 +574,13 @@ class HeadHandCalibrationScript(CalibrationScript):
         self._write_output("="*51)
         
         self.is_running = False
+
+
+    def get_upper_info(self) -> Dict[str, Any]:
+        """获取上位机信息"""
+        if not self.is_upper_connected:
+            return {}
+        return self.upper_info.copy()
 
 
 # 全局模拟器实例

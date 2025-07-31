@@ -68,7 +68,7 @@ async def root():
 
 
 if __name__ == "__main__":
-    # 从环境变量获取端口，默认8000
+    # 从环境变量获取端口，默认8001
     port = int(os.getenv("KUAVO_PORT", "8001"))
     
     uvicorn.run(
