@@ -5,6 +5,10 @@ const WS_BASE_URL = 'ws://localhost:8001';
 // Global variables
 let robots = [];
 let ws = null;
+let currentPage = 1;
+let pageSize = 10;
+let totalRobots = 0;
+let totalPages = 1;
 
 // DOM elements
 const robotsList = document.getElementById('robotsList');
@@ -21,6 +25,12 @@ const confirmDeviceAdd = document.getElementById('confirmDeviceAdd');
 const progressSection = document.getElementById('progressSection');
 const progressFill = document.getElementById('progressFill');
 const progressLogs = document.getElementById('progressLogs');
+const paginationContainer = document.getElementById('paginationContainer');
+const paginationInfo = document.getElementById('paginationInfo');
+const pageNumbers = document.getElementById('pageNumbers');
+const prevPageBtn = document.getElementById('prevPageBtn');
+const nextPageBtn = document.getElementById('nextPageBtn');
+const pageSizeSelect = document.getElementById('pageSizeSelect');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRobots();
     setupEventListeners();
     setupTabs();
+    setupPagination();
 });
 
 // WebSocket connection
@@ -70,14 +81,15 @@ function handleWebSocketMessage(message) {
 // Handle robot status updates
 function handleRobotStatusUpdate(data) {
     if (data.status === 'deleted') {
-        robots = robots.filter(r => r.id !== data.robot_id);
+        // 重新加载当前页
+        loadRobots();
     } else {
         const robot = robots.find(r => r.id === data.robot_id);
         if (robot) {
             robot.connection_status = data.status;
+            renderRobots();
         }
     }
-    renderRobots();
 }
 
 // Setup event listeners
@@ -153,14 +165,42 @@ function closeAddRobotModal() {
 }
 
 // Load robots from API
-async function loadRobots() {
+async function loadRobots(page = currentPage, size = pageSize) {
     try {
-        const response = await fetch(`${API_BASE_URL}/robots`);
-        robots = await response.json();
+        const response = await fetch(`${API_BASE_URL}/robots/?page=${page}&page_size=${size}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        // 处理分页响应格式
+        if (data.items && Array.isArray(data.items)) {
+            robots = data.items;
+            // 更新分页信息
+            if (data.pagination) {
+                totalRobots = data.pagination.total;
+                totalPages = data.pagination.total_pages;
+                currentPage = data.pagination.page;
+                pageSize = data.pagination.page_size;
+            }
+        } else if (Array.isArray(data)) {
+            // 兼容旧格式
+            robots = data;
+            totalRobots = data.length;
+            totalPages = 1;
+            currentPage = 1;
+        } else {
+            console.error('未知的响应格式:', data);
+            robots = [];
+            totalRobots = 0;
+            totalPages = 1;
+        }
+        
         renderRobots();
+        updatePagination();
     } catch (error) {
         console.error('加载机器人列表失败:', error);
-        showToast('加载设备列表失败', 'error');
+        showToast('加载设备列表失败: ' + error.message, 'error');
     }
 }
 
@@ -168,7 +208,7 @@ async function loadRobots() {
 function renderRobots() {
     robotsList.innerHTML = '';
     
-    if (robots.length === 0) {
+    if (totalRobots === 0) {
         robotsList.innerHTML = `
             <div class="empty-state">
                 <svg class="empty-icon" viewBox="0 0 120 120" fill="none">
@@ -181,6 +221,14 @@ function renderRobots() {
                 <div class="empty-title">暂无任何机器人设备</div>
             </div>
         `;
+        paginationContainer.style.display = 'none';
+        return;
+    }
+    
+    if (robots.length === 0 && currentPage > 1) {
+        // 如果当前页没有数据但不是第一页，返回第一页
+        currentPage = 1;
+        loadRobots();
         return;
     }
     
@@ -188,6 +236,8 @@ function renderRobots() {
         const item = createDeviceItem(robot);
         robotsList.appendChild(item);
     });
+    
+    paginationContainer.style.display = 'flex';
 }
 
 // Create device item
@@ -211,6 +261,7 @@ function createDeviceItem(robot) {
         <div class="device-status ${statusClass}"></div>
         <div class="device-name">${robot.name}</div>
         <div class="device-info">
+            <span>类型: ${robot.device_type === 'upper' ? '上位机' : '下位机'}</span>
             <span>端口: ${robot.port}</span>
             <span>IP: ${robot.ip_address}</span>
         </div>
@@ -235,6 +286,10 @@ async function handleAddRobot(event) {
     const formData = new FormData(addRobotForm);
     const robotData = Object.fromEntries(formData);
     robotData.port = 22; // Set default SSH port
+    
+    // 获取设备类型，从device_type单选按钮获取
+    const deviceTypeInput = document.querySelector('input[name="device_type"]:checked');
+    robotData.device_type = deviceTypeInput ? deviceTypeInput.value : 'lower';
     
     // Show progress section
     progressSection.style.display = 'block';
@@ -296,16 +351,21 @@ function showProgress(percent, message) {
 
 // Show device confirmation dialog
 function showDeviceConfirmation(robotData, deviceInfo) {
-    // Fill device information
-    document.getElementById('confirmHardwareModel').textContent = deviceInfo.hardware_model || 'Kuavo 4 pro';
-    document.getElementById('confirmSoftwareVersion').textContent = deviceInfo.software_version || 'version 1.2.3';
-    document.getElementById('confirmSnNumber').textContent = deviceInfo.sn_number || 'qwert3459592sfag';
-    document.getElementById('confirmEndEffector').textContent = deviceInfo.end_effector_type || '夹爪手';
+    // Fill device information - 使用新字段名，但保留对旧字段的兼容
+    document.getElementById('confirmHardwareModel').textContent = 
+        deviceInfo.robot_model || deviceInfo.hardware_model || 'Kuavo 4 pro';
+    document.getElementById('confirmSoftwareVersion').textContent = 
+        deviceInfo.robot_software_version || deviceInfo.software_version || 'version 1.2.3';
+    document.getElementById('confirmSnNumber').textContent = 
+        deviceInfo.robot_sn || deviceInfo.sn_number || 'qwert3459592sfag';
+    document.getElementById('confirmEndEffector').textContent = 
+        deviceInfo.end_effector_model || deviceInfo.end_effector_type || '灵巧手';
     
     // Store robot data for confirmation
     window.pendingRobotData = {
         ...robotData,
-        ...deviceInfo
+        ...deviceInfo,
+        device_type: robotData.device_type  // 确保包含设备类型
     };
     
     deviceConfirmModal.style.display = 'flex';
@@ -318,7 +378,7 @@ async function confirmAddDevice() {
     deviceConfirmModal.style.display = 'none';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/robots`, {
+        const response = await fetch(`${API_BASE_URL}/robots/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -328,9 +388,11 @@ async function confirmAddDevice() {
         
         if (response.ok) {
             const newRobot = await response.json();
-            robots.push(newRobot);
-            renderRobots();
             showToast('设备添加成功！', 'success');
+            
+            // 重新加载列表
+            currentPage = 1; // 回到第一页
+            await loadRobots();
             
             // Auto connect
             await connectRobot(newRobot.id);
@@ -417,9 +479,9 @@ async function deleteRobot(robotId) {
         });
         
         if (response.ok) {
-            robots = robots.filter(r => r.id !== robotId);
-            renderRobots();
             showToast('设备删除成功', 'success');
+            // 重新加载当前页
+            await loadRobots();
         } else {
             const error = await response.json();
             showToast('删除失败：' + error.detail, 'error');
@@ -443,6 +505,10 @@ async function showRobotDetail(robotId) {
             <span class="info-value">${robot.name}</span>
         </div>
         <div class="info-item">
+            <span class="info-label">设备类型：</span>
+            <span class="info-value">${robot.device_type === 'upper' ? '上位机' : '下位机'}</span>
+        </div>
+        <div class="info-item">
             <span class="info-label">IP地址：</span>
             <span class="info-value">${robot.ip_address}</span>
         </div>
@@ -456,19 +522,19 @@ async function showRobotDetail(robotId) {
         </div>
         <div class="info-item">
             <span class="info-label">硬件型号：</span>
-            <span class="info-value">${robot.hardware_model || '未知'}</span>
+            <span class="info-value">${robot.hardware_model || robot.robot_model || '未知'}</span>
         </div>
         <div class="info-item">
             <span class="info-label">软件版本：</span>
-            <span class="info-value">${robot.software_version || '未知'}</span>
+            <span class="info-value">${robot.software_version || robot.robot_software_version || '未知'}</span>
         </div>
         <div class="info-item">
             <span class="info-label">SN号：</span>
-            <span class="info-value">${robot.sn_number || '未知'}</span>
+            <span class="info-value">${robot.sn_number || robot.robot_sn || '未知'}</span>
         </div>
         <div class="info-item">
             <span class="info-label">末端执行器：</span>
-            <span class="info-value">${robot.end_effector_type || '未知'}</span>
+            <span class="info-value">${robot.end_effector_type || robot.end_effector_model || '未知'}</span>
         </div>
     `;
     
@@ -532,4 +598,111 @@ function showToast(message, type = 'info') {
             document.body.removeChild(toast);
         }
     }, 3000);
+}
+
+// Setup pagination event listeners
+function setupPagination() {
+    // 上一页按钮
+    prevPageBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            loadRobots();
+        }
+    });
+    
+    // 下一页按钮
+    nextPageBtn.addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            currentPage++;
+            loadRobots();
+        }
+    });
+    
+    // 每页显示数量选择
+    pageSizeSelect.addEventListener('change', (e) => {
+        pageSize = parseInt(e.target.value);
+        currentPage = 1; // 重置到第一页
+        loadRobots();
+    });
+}
+
+// Update pagination UI
+function updatePagination() {
+    // 更新信息文本
+    paginationInfo.textContent = `共 ${totalRobots} 条记录`;
+    
+    // 更新按钮状态
+    prevPageBtn.disabled = currentPage <= 1;
+    nextPageBtn.disabled = currentPage >= totalPages;
+    
+    // 生成页码
+    generatePageNumbers();
+}
+
+// Generate page numbers
+function generatePageNumbers() {
+    pageNumbers.innerHTML = '';
+    
+    const maxVisible = 7; // 最多显示7个页码
+    let startPage = 1;
+    let endPage = totalPages;
+    
+    if (totalPages > maxVisible) {
+        const halfVisible = Math.floor(maxVisible / 2);
+        
+        if (currentPage <= halfVisible) {
+            endPage = maxVisible - 1;
+        } else if (currentPage >= totalPages - halfVisible) {
+            startPage = totalPages - maxVisible + 2;
+        } else {
+            startPage = currentPage - halfVisible + 1;
+            endPage = currentPage + halfVisible - 1;
+        }
+    }
+    
+    // 添加第一页
+    if (startPage > 1) {
+        addPageNumber(1);
+        if (startPage > 2) {
+            addPageNumber('...', true);
+        }
+    }
+    
+    // 添加中间页码
+    for (let i = startPage; i <= endPage; i++) {
+        addPageNumber(i);
+    }
+    
+    // 添加最后一页
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            addPageNumber('...', true);
+        }
+        addPageNumber(totalPages);
+    }
+}
+
+// Add page number element
+function addPageNumber(page, isEllipsis = false) {
+    const pageElement = document.createElement('button');
+    pageElement.className = 'page-number';
+    pageElement.textContent = page;
+    
+    if (isEllipsis) {
+        pageElement.className += ' ellipsis';
+        pageElement.disabled = true;
+    } else {
+        if (page === currentPage) {
+            pageElement.className += ' active';
+        }
+        
+        pageElement.addEventListener('click', () => {
+            if (page !== currentPage) {
+                currentPage = page;
+                loadRobots();
+            }
+        });
+    }
+    
+    pageNumbers.appendChild(pageElement);
 }

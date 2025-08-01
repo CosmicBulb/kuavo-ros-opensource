@@ -189,3 +189,26 @@ class CalibrationExecuteRequest(BaseModel):
     """执行标定请求"""
     calibration_mode: str = Field(..., description="标定模式: full_body, arms_only, legs_only")
     command: Optional[str] = Field(None, description="要执行的命令，如果不提供将使用默认命令")
+
+
+class JointDebugRequest(BaseModel):
+    """关节调试请求"""
+    joints: List[Dict[str, Any]] = Field(..., description="要调试的关节列表")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "joints": [
+                    {"id": 1, "name": "joint1", "position": 0.051},
+                    {"id": 2, "name": "joint2", "position": 0.011}
+                ]
+            }
+        }
+
+
+class JointDebugResponse(BaseModel):
+    """关节调试响应"""
+    success: bool
+    message: str
+    command_executed: Optional[str] = None
+    error: Optional[str] = None

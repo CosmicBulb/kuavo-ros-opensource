@@ -10,11 +10,16 @@ class CalibrationManager {
         this.currentHeadHandStep = 1;
         this.calibrationType = null;
         
-        // 工具确认状态
-        this.toolsConfirmed = [false, false, false, false];
         this.autoNextStepScheduled = false; // 防止重复设置定时器
         this.isLoadingConfig = false; // 防止重复加载配置
         this.lastLoggedStatus = {}; // 记录已输出的日志，避免重复
+        this.isProcessingStep = false; // 防止重复处理步骤切换
+        this.isCalibrationInProgress = false; // 防止多次同时启动标定
+        this.currentHeadHandSessionId = null; // 当前头手标定会话ID
+        
+        // WebSocket重连控制
+        this.reconnectTimer = null;
+        this.isReconnecting = false;
         
         this.init();
         this.setupWebSocket();
@@ -38,10 +43,6 @@ class CalibrationManager {
         // 选择设备按钮
         document.getElementById('selectDeviceBtn').addEventListener('click', this.startCalibration.bind(this));
         
-        // 工具确认按钮
-        document.querySelectorAll('.tool-confirm-btn').forEach((btn, index) => {
-            btn.addEventListener('click', () => this.confirmTool(index));
-        });
         
         // 步骤导航按钮
         document.getElementById('nextStepBtn').addEventListener('click', this.nextStep.bind(this));
@@ -109,11 +110,31 @@ class CalibrationManager {
     }
 
     setupWebSocket() {
+        // 如果已经在重连中，直接返回
+        if (this.isReconnecting) {
+            console.log('WebSocket正在重连中，跳过重复连接');
+            return;
+        }
+        
+        // 清理旧的连接
+        if (this.websocket) {
+            this.websocket.onclose = null; // 防止触发重连
+            this.websocket.close();
+            this.websocket = null;
+        }
+        
+        // 清理重连定时器
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        
         const wsUrl = `ws://localhost:8001/ws/calibration-client-${Date.now()}`;
         this.websocket = new WebSocket(wsUrl);
         
         this.websocket.onopen = () => {
             console.log('WebSocket连接已建立');
+            this.isReconnecting = false;
         };
 
         this.websocket.onmessage = (event) => {
@@ -123,8 +144,17 @@ class CalibrationManager {
 
         this.websocket.onclose = () => {
             console.log('WebSocket连接已关闭');
-            // 尝试重连
-            setTimeout(() => this.setupWebSocket(), 3000);
+            this.websocket = null;
+            
+            // 只在非主动关闭的情况下重连
+            if (!this.isReconnecting) {
+                this.isReconnecting = true;
+                console.log('将在3秒后尝试重连...');
+                this.reconnectTimer = setTimeout(() => {
+                    this.isReconnecting = false;
+                    this.setupWebSocket();
+                }, 3000);
+            }
         };
 
         this.websocket.onerror = (error) => {
@@ -140,8 +170,28 @@ class CalibrationManager {
                 this.updateZeroPointCalibrationStatus(message.data);
                 break;
             case 'calibration_log':
+                // 支持多种WebSocket消息格式
+                let log = null;
+                
+                // 格式1: {type: 'calibration_log', data: {log: 'content'}}
                 if (message.data && message.data.log) {
-                    const log = message.data.log;
+                    log = message.data.log;
+                }
+                // 格式2: {type: 'calibration_log', session_id: '...', data: 'content'}
+                else if (message.data && typeof message.data === 'string') {
+                    log = message.data;
+                }
+                // 格式3: {type: 'calibration_log', data: 'content'}
+                else if (message.data) {
+                    log = message.data;
+                }
+                // 格式4: 直接字符串
+                else if (typeof message === 'string') {
+                    log = message;
+                }
+                
+                if (log) {
+                    console.log('处理标定日志:', log); // 调试日志
                     
                     // 检查是否是位置信息
                     const positionMatch = log.match(/Slave (\d+) actual position ([\d.-]+),\s*Encoder ([\d.-]+)/);
@@ -164,9 +214,11 @@ class CalibrationManager {
                             this.lastCalibrationData[slaveData.slave - 1] = slaveData;
                         }
                     } else {
-                        // 其他日志信息，只在控制台显示
+                        // 其他日志信息，显示到对应界面（包括头手标定日志）
                         this.addCalibrationLog(log);
                     }
+                } else {
+                    console.warn('无法解析标定日志消息:', message);
                 }
                 break;
             case 'calibration_status':
@@ -175,6 +227,41 @@ class CalibrationManager {
             case 'robot_status':
                 // 处理机器人状态更新
                 console.log('机器人状态更新:', message.data);
+                // 如果设备连接状态发生变化，刷新设备列表
+                if (message.data && (message.data.status === 'disconnected' || message.data.status === 'connected')) {
+                    if (message.data.status === 'disconnected') {
+                        // 如果断开的是当前选中的设备，清空选择
+                        if (this.currentRobot === message.data.robot_id) {
+                            this.currentRobot = null;
+                            document.getElementById('robotSelect').value = '';
+                            this.showError('当前设备已断开连接，请重新选择设备');
+                        }
+                    }
+                    // 刷新在线设备列表
+                    setTimeout(() => this.loadRobots(), 500); // 延迟一下确保后端状态已更新
+                }
+                break;
+            case 'head_hand_calibration_error':
+                // 只处理来自当前活动会话的错误消息
+                if (message.session_id === this.currentHeadHandSessionId) {
+                    console.error('头手标定失败:', message.error);
+                    this.isCalibrationInProgress = false; // 清除标定进行中标志
+                    this.currentHeadHandSessionId = null; // 清除会话ID
+                    this.showHeadHandCalibrationFailure(message.error);
+                } else {
+                    console.log('忽略旧会话的错误消息:', message.session_id);
+                }
+                break;
+            case 'head_hand_calibration_complete':
+                // 只处理来自当前活动会话的完成消息
+                if (message.session_id === this.currentHeadHandSessionId) {
+                    console.log('头手标定完成:', message);
+                    this.isCalibrationInProgress = false; // 清除标定进行中标志
+                    this.currentHeadHandSessionId = null; // 清除会话ID
+                    this.showHeadHandCalibrationSuccess();
+                } else {
+                    console.log('忽略旧会话的完成消息:', message.session_id);
+                }
                 break;
         }
     }
@@ -344,22 +431,51 @@ class CalibrationManager {
 
     async loadRobots() {
         try {
-            const response = await fetch(`${this.API_BASE_URL}/robots`);
-            const robots = await response.json();
+            // 调用新的在线设备API，只获取已连接的设备
+            const response = await fetch(`${this.API_BASE_URL}/robots/online`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // 处理分页响应格式
+            let robots = [];
+            if (data.items && Array.isArray(data.items)) {
+                robots = data.items;
+            } else if (Array.isArray(data)) {
+                // 兼容旧格式
+                robots = data;
+            } else {
+                console.error('未知的响应格式:', data);
+                throw new Error('响应格式错误');
+            }
             
             const select = document.getElementById('robotSelect');
             select.innerHTML = '<option value="">请选择需要标定的设备</option>';
             
-            robots.forEach(robot => {
-                const option = document.createElement('option');
-                option.value = robot.id;
-                option.textContent = `${robot.name} (${robot.ip_address})`;
-                option.dataset.status = robot.connection_status;
-                select.appendChild(option);
-            });
+            // 只显示在线设备
+            if (robots.length === 0) {
+                select.innerHTML = '<option value="">暂无在线设备</option>';
+                select.disabled = true;
+                this.showError('暂无在线设备，请先在设备管理中连接设备');
+            } else {
+                select.disabled = false;
+                robots.forEach(robot => {
+                    const option = document.createElement('option');
+                    option.value = robot.id;
+                    // 添加设备类型显示
+                    const deviceType = robot.device_type === 'upper' ? '上位机' : '下位机';
+                    option.textContent = `${robot.name} (${robot.ip_address}) - ${deviceType}`;
+                    option.dataset.status = robot.connection_status;
+                    select.appendChild(option);
+                });
+            }
         } catch (error) {
-            console.error('加载设备列表失败:', error);
-            this.showError('加载设备列表失败');
+            console.error('加载在线设备列表失败:', error);
+            this.showError('加载在线设备列表失败: ' + error.message);
+            const select = document.getElementById('robotSelect');
+            select.innerHTML = '<option value="">加载设备失败</option>';
+            select.disabled = true;
         }
     }
 
@@ -480,15 +596,13 @@ class CalibrationManager {
 
             if (response.ok) {
                 const data = await response.json();
-                this.currentSession = data.session_id;
+                this.currentSession = data;  // 保存整个响应对象，而不仅仅是session_id
                 console.log('零点标定已启动:', data);
+                console.log('保存的会话对象:', this.currentSession);
                 
                 // 订阅WebSocket更新
                 this.subscribeToUpdates();
                 
-                // 重置工具确认状态
-                this.toolsConfirmed = [false, false, false, false];
-                this.updateToolConfirmButtons();
                 
             } else {
                 const error = await response.text();
@@ -559,50 +673,8 @@ class CalibrationManager {
         }
     }
 
-    async confirmTool(toolIndex) {
-        if (!this.currentSession) return;
 
-        try {
-            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/confirm-tool`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    tool_index: toolIndex
-                })
-            });
 
-            if (response.ok) {
-                this.toolsConfirmed[toolIndex] = true;
-                this.updateToolConfirmButtons();
-                this.checkAllToolsConfirmed();
-            } else {
-                const error = await response.text();
-                console.error('工具确认失败:', error);
-            }
-        } catch (error) {
-            console.error('工具确认请求失败:', error);
-        }
-    }
-
-    updateToolConfirmButtons() {
-        document.querySelectorAll('.tool-confirm-btn').forEach((btn, index) => {
-            if (this.toolsConfirmed[index]) {
-                btn.textContent = '已确认';
-                btn.disabled = true;
-                btn.parentElement.classList.add('confirmed');
-            }
-        });
-    }
-
-    checkAllToolsConfirmed() {
-        const allConfirmed = this.toolsConfirmed.every(confirmed => confirmed);
-        document.getElementById('nextStepBtn').disabled = !allConfirmed;
-        
-        // 步骤1完成后，后端会自动进入步骤2和步骤3
-        // 前端不需要主动调用nextStep，而是等待后端状态更新
-    }
 
     nextStep() {
         console.log('nextStep 被调用，当前标定类型:', this.calibrationType);
@@ -615,13 +687,30 @@ class CalibrationManager {
 
     nextZeroPointStep() {
         console.log('nextZeroPointStep 被调用，当前步骤:', this.currentStep, '-> 下一步:', this.currentStep + 1);
-        console.trace('调用栈'); // 打印调用栈
         
-        // 如果是从步骤1进入步骤2，不要立即跳转，让后端控制流程
+        // 防止重复调用
+        if (this.isProcessingStep) {
+            console.log('正在处理步骤切换，忽略重复调用');
+            return;
+        }
+        this.isProcessingStep = true;
+        
+        // 步骤1完成后直接进入步骤2
         if (this.currentStep === 1) {
-            // 步骤1完成后，由后端控制进入步骤2并自动加载配置
-            // 前端只需要等待后端的状态更新
-            console.log('步骤1完成，等待后端处理...');
+            console.log('步骤1完成，切换到步骤2');
+            this.currentStep = 2;
+            this.updateStepIndicator(this.currentStep);
+            
+            // 显示步骤2内容
+            document.querySelectorAll('.step-panel').forEach(panel => panel.classList.remove('active'));
+            document.getElementById('step2Content').classList.add('active');
+            
+            // 开始加载配置
+            if (!this.isLoadingConfig) {
+                this.loadCurrentConfiguration();
+            }
+            
+            this.isProcessingStep = false;
             return;
         }
         
@@ -646,6 +735,9 @@ class CalibrationManager {
                 this.showCompletionStatus();
                 break;
         }
+        
+        // 重置处理状态
+        this.isProcessingStep = false;
     }
 
     nextHeadHandStep() {
@@ -765,39 +857,38 @@ class CalibrationManager {
             const legsData = await legsResponse.json();
             console.log('腿部数据:', legsData);
             
-            // 合并数据 - 确保每个关节都有有效数据
-            this.jointData = [];
+            // 分别存储手臂和腿部数据
+            this.armJointData = [];
+            this.legJointData = [];
             
             // 处理手臂数据
             if (armsData.joint_data && Array.isArray(armsData.joint_data)) {
-                armsData.joint_data.forEach(joint => {
-                    this.jointData.push({
-                        id: joint.id,
-                        name: joint.name || `关节${joint.id}`,
-                        current_position: joint.current_position || 0,
-                        zero_position: joint.zero_position || 0,
-                        offset: joint.offset || 0,
-                        status: joint.status || 'normal'
-                    });
-                });
+                this.armJointData = armsData.joint_data.map(joint => ({
+                    id: joint.id,
+                    name: joint.name || `关节${joint.id}`,
+                    current_position: joint.current_position || 0,
+                    zero_position: joint.zero_position || 0,
+                    offset: joint.offset || 0,
+                    status: joint.status || 'normal',
+                    type: joint.id >= 13 && joint.id <= 14 ? 'head' : 'arm'
+                }));
             }
             
             // 处理腿部数据
             if (legsData.joint_data && Array.isArray(legsData.joint_data)) {
-                legsData.joint_data.forEach(joint => {
-                    // 避免重复ID
-                    if (!this.jointData.find(j => j.id === joint.id)) {
-                        this.jointData.push({
-                            id: joint.id,
-                            name: joint.name || `关节${joint.id}`,
-                            current_position: joint.current_position || 0,
-                            zero_position: joint.zero_position || 0,
-                            offset: joint.offset || 0,
-                            status: joint.status || 'normal'
-                        });
-                    }
-                });
+                this.legJointData = legsData.joint_data.map(joint => ({
+                    id: joint.id,
+                    name: joint.name || `关节${joint.id}`,
+                    current_position: joint.current_position || 0,
+                    zero_position: joint.zero_position || 0,
+                    offset: joint.offset || 0,
+                    status: joint.status || 'normal',
+                    type: 'leg'
+                }));
             }
+            
+            // 为了兼容性，也创建合并的jointData
+            this.jointData = [...this.armJointData];
             
             console.log('合并后的关节数据:', this.jointData);
             
@@ -824,12 +915,19 @@ class CalibrationManager {
                 `;
             }
             
-            // 步骤2完成后，由于后端会自动进入步骤3，这里不需要额外操作
-            // 只需要确保数据已经加载完成
+            // 配置加载完成后，自动跳转到步骤3
             console.log('配置加载完成，关节数据数量:', this.jointData.length);
             
             // 标记数据已加载，供步骤3使用
             this.dataLoaded = true;
+            
+            // 自动跳转到步骤3
+            setTimeout(() => {
+                if (this.currentStep === 2) {
+                    console.log('步骤2配置加载完成，自动跳转到步骤3');
+                    this.nextZeroPointStep();
+                }
+            }, 1000); // 延迟1秒让用户看到加载完成状态
             
         } catch (error) {
             console.error('加载配置失败:', error);
@@ -851,64 +949,40 @@ class CalibrationManager {
         }
     }
 
-    showJointDataTable() {
+    async showJointDataTable() {
         console.log('显示关节数据表格，当前步骤:', this.currentStep);
         console.log('关节数据:', this.jointData);
         
-        const tbody = document.querySelector('#jointTable tbody');
-        if (!tbody) {
-            console.error('找不到关节数据表格tbody元素');
-            return;
+        // 在显示步骤3时，确保后端状态同步为initialize_zero
+        if (this.currentStep === 3 && this.currentSession) {
+            try {
+                console.log('更新后端步骤状态为initialize_zero...');
+                const response = await fetch(
+                    `${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/go-to-step`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ step: 'initialize_zero' })
+                    }
+                );
+                
+                if (response.ok) {
+                    console.log('后端步骤状态已更新为initialize_zero');
+                } else {
+                    console.warn('更新后端步骤状态失败:', response.status);
+                }
+            } catch (error) {
+                console.error('更新后端步骤状态时出错:', error);
+            }
         }
         
-        tbody.innerHTML = '';
+        // 直接调用renderJointDataTable来渲染表格
+        this.renderJointDataTable();
         
+        // 检查是否有警告或错误
         if (this.jointData && this.jointData.length > 0) {
-            // 显示所有关节数据（手臂14个）
-            const displayJoints = this.jointData;
-            console.log('显示的关节数据:', displayJoints);
-            console.log('关节数据数量:', displayJoints.length);
-            
-            displayJoints.forEach((joint, index) => {
-                const row = document.createElement('tr');
-                // 确保数值存在且为数字，否则使用默认值0
-                const currentPos = (typeof joint.current_position === 'number' && !isNaN(joint.current_position)) ? joint.current_position : 0;
-                const zeroPos = (typeof joint.zero_position === 'number' && !isNaN(joint.zero_position)) ? joint.zero_position : 0;
-                const offset = (typeof joint.offset === 'number' && !isNaN(joint.offset)) ? joint.offset : 0;
-                
-                // 根据关节状态设置行样式
-                if (joint.status === 'warning') {
-                    row.style.backgroundColor = '#fff8e1';
-                } else if (joint.status === 'error') {
-                    row.style.backgroundColor = '#ffebee';
-                }
-                
-                // 使用序号作为显示的关节编号（1-14）
-                const displayId = index + 1;
-                
-                row.innerHTML = `
-                    <td>${joint.name || `关节${displayId}`}</td>
-                    <td>${currentPos.toFixed(3)}</td>
-                    <td><input type="number" value="${zeroPos.toFixed(3)}" step="0.001" class="joint-input" data-joint-id="${joint.id}" data-field="zero_position"></td>
-                    <td><input type="number" value="${offset.toFixed(3)}" step="0.001" class="joint-input" data-joint-id="${joint.id}" data-field="offset"></td>
-                    <td><span class="joint-status ${joint.status || 'normal'}">${this.getStatusText(joint.status || 'normal')}</span></td>
-                `;
-                tbody.appendChild(row);
-            });
-            
-            // 绑定输入事件
-            document.querySelectorAll('.joint-input').forEach(input => {
-                input.addEventListener('change', this.onJointDataChange.bind(this));
-                input.addEventListener('focus', (e) => {
-                    e.target.select(); // 聚焦时选中所有文本
-                });
-            });
-            
-            console.log(`成功显示 ${displayJoints.length} 个关节数据`);
-            
-            // 检查是否有警告或错误
-            const hasWarnings = displayJoints.some(j => j.status === 'warning');
-            const hasErrors = displayJoints.some(j => j.status === 'error');
+            const hasWarnings = this.jointData.some(j => j.status === 'warning');
+            const hasErrors = this.jointData.some(j => j.status === 'error');
             
             if (hasErrors) {
                 this.addCalibrationLog('⚠️ 检测到关节数据错误，请检查并修正');
@@ -916,18 +990,6 @@ class CalibrationManager {
                 this.addCalibrationLog('⚠️ 检测到关节数据警告，建议检查数值');
             } else {
                 this.addCalibrationLog('✅ 关节数据正常');
-            }
-        } else {
-            console.warn('没有关节数据可显示');
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">正在加载关节数据...</td></tr>';
-            
-            // 如果没有数据，可能需要重新加载
-            if (!this.jointData || this.jointData.length === 0) {
-                console.log('关节数据为空，尝试重新加载...');
-                // 不要重复加载，只需要等待数据加载完成
-                if (!this.isLoadingConfig) {
-                    this.loadCurrentConfiguration();
-                }
             }
         }
     }
@@ -941,20 +1003,6 @@ class CalibrationManager {
         return statusMap[status] || status;
     }
 
-    onJointDataChange(event) {
-        const input = event.target;
-        const jointId = parseInt(input.dataset.jointId);
-        const field = input.dataset.field;
-        const value = parseFloat(input.value);
-        
-        // 更新本地数据
-        const joint = this.jointData.find(j => j.id === jointId);
-        if (joint) {
-            joint[field] = value;
-        }
-        
-        console.log(`关节${jointId}的${field}更新为:`, value);
-    }
 
     // 一键标零功能
     async executeOneClickZero() {
@@ -975,7 +1023,7 @@ class CalibrationManager {
             }
             
             // 调用API执行全身标定 - 使用正确的roslaunch命令
-            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/execute-calibration`, {
+            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/execute-calibration`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1007,85 +1055,120 @@ class CalibrationManager {
         }
     }
     
-    // 切换关节调试模式
+    // 关节调试 - 发送ROS命令
     async toggleJointDebugMode() {
-        if (this.isInDebugMode) {
-            await this.exitJointDebugMode();
-        } else {
-            await this.enterJointDebugMode();
-        }
-    }
-    
-    // 关节调试模式
-    async enterJointDebugMode() {
-        console.log('进入关节调试模式...');
-        this.addCalibrationLog('🔧 进入关节调试模式');
+        console.log('执行关节调试...');
         
         try {
-            // 先获取最新的关节数据
-            await this.refreshJointData();
+            // 检查是否在标定模式下
+            if (!this.currentSession) {
+                throw new Error('请先执行"一键标零"启动标定程序');
+            }
             
-            // 启用关节数据表格的编辑功能
-            const inputs = document.querySelectorAll('.joint-input');
-            inputs.forEach(input => {
-                input.disabled = false;
-                input.style.backgroundColor = '#fff';
+            const jointDebugBtn = document.getElementById('jointDebugBtn');
+            if (jointDebugBtn) {
+                jointDebugBtn.disabled = true;
+                jointDebugBtn.textContent = '执行中...';
+            }
+            
+            // 只获取被修改的关节参数
+            const modifiedInputs = document.querySelectorAll('.joint-zero-input[data-modified="true"]');
+            
+            if (modifiedInputs.length === 0) {
+                throw new Error('没有修改任何关节参数');
+            }
+            
+            // 构建请求数据 - 只包含被修改的关节
+            const modifiedJoints = [];
+            modifiedInputs.forEach(input => {
+                const jointId = parseInt(input.dataset.jointId);
+                const jointName = input.dataset.jointName;
+                const position = parseFloat(input.value);
+                
+                // 从jointData中找到对应的关节信息
+                const joint = this.jointData.find(j => j.id === jointId);
+                if (joint) {
+                    modifiedJoints.push({
+                        id: jointId,
+                        name: joint.name,
+                        position: position
+                    });
+                }
             });
             
-            // 修改按钮状态
-            const btn = document.getElementById('jointDebugBtn');
-            if (btn) {
-                btn.textContent = '退出调试';
-                btn.classList.remove('btn-info');
-                btn.classList.add('btn-warning');
+            if (modifiedJoints.length === 0) {
+                throw new Error('没有找到有效的关节数据');
             }
             
-            this.isInDebugMode = true;
-            this.addCalibrationLog('✅ 关节调试模式已启用，可以修改关节参数');
+            const requestData = {
+                joints: modifiedJoints
+            };
+            
+            console.log('发送关节调试命令:', requestData);
+            console.log('当前会话信息:', this.currentSession);
+            this.addCalibrationLog(`🔧 执行关节调试，调整 ${modifiedJoints.length} 个关节: ${modifiedJoints.map(j => `${j.name}=${j.position.toFixed(4)}`).join(', ')}`);
+            
+            // 获取session_id
+            const sessionId = typeof this.currentSession === 'string' ? this.currentSession : this.currentSession?.session_id;
+            
+            if (!sessionId) {
+                console.error('当前会话:', this.currentSession);
+                throw new Error('未找到标定会话ID');
+            }
+            
+            console.log('使用的session_id:', sessionId);
+            
+            // 调用后端API执行ROS命令
+            const response = await fetch(
+                `${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${sessionId}/joint-debug`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                }
+            );
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || '执行关节调试命令失败');
+            }
+            
+            const result = await response.json();
+            console.log('关节调试命令执行成功:', result);
+            
+            this.addCalibrationLog('✅ 关节调试命令执行成功');
+            if (result.command_executed) {
+                this.addCalibrationLog(`💡 执行的命令: rostopic pub -1 /kuavo_arm_traj ...`);
+            }
+            
+            // 显示成功提示
+            this.showSuccess('关节调试命令已发送，机器人正在移动到目标位置');
             
         } catch (error) {
-            console.error('启动关节调试模式失败:', error);
-            this.showError('启动关节调试模式失败: ' + error.message);
-        }
-    }
-    
-    // 退出关节调试模式
-    async exitJointDebugMode() {
-        console.log('退出关节调试模式...');
-        
-        try {
-            // 保存修改的数据
-            if (this.jointData && this.jointData.length > 0) {
-                await this.saveJointData();
-                this.addCalibrationLog('✅ 关节调试完成，数据已保存');
+            console.error('关节调试失败:', error);
+            this.addCalibrationLog(`❌ 关节调试失败: ${error.message}`);
+            this.showError('关节调试失败: ' + error.message);
+        } finally {
+            const jointDebugBtn = document.getElementById('jointDebugBtn');
+            if (jointDebugBtn) {
+                jointDebugBtn.disabled = false;
+                jointDebugBtn.textContent = '关节调试';
             }
-        } catch (error) {
-            console.error('保存关节数据失败:', error);
-            this.addCalibrationLog('❌ 保存关节数据失败: ' + error.message);
-            this.showError('保存关节数据失败: ' + error.message);
         }
-        
-        // 禁用表格编辑
-        const inputs = document.querySelectorAll('.joint-input');
-        inputs.forEach(input => {
-            input.disabled = true;
-            input.style.backgroundColor = '#f5f5f5';
-        });
-        
-        // 恢复按钮状态
-        const btn = document.getElementById('jointDebugBtn');
-        if (btn) {
-            btn.textContent = '关节调试';
-            btn.classList.remove('btn-warning');
-            btn.classList.add('btn-info');
-        }
-        
-        this.isInDebugMode = false;
     }
     
     // 执行头手标定（一键标零）
     async executeHeadHandCalibration() {
+        // 防止多次同时启动
+        if (this.isCalibrationInProgress) {
+            console.log('头手标定已在进行中，忽略重复请求');
+            return;
+        }
+        
         try {
+            this.isCalibrationInProgress = true;
             console.log('开始执行头手标定...');
             
             // 禁用按钮
@@ -1101,18 +1184,82 @@ class CalibrationManager {
                 progressDiv.style.display = 'block';
             }
             
+            // 清空初始的静态日志内容，准备显示实时日志
+            const logOutput = document.getElementById('headHandLogOutput');
+            if (logOutput) {
+                logOutput.innerHTML = '';
+            }
+            
+            // 确保标定类型设置正确，以便日志正确路由
+            this.calibrationType = 'head_hand';
+            console.log('头手标定开始，标定类型设置为:', this.calibrationType);
+            
             // 启动头手标定脚本执行
             await this.startHeadHandCalibrationScript();
             
         } catch (error) {
             console.error('头手标定执行失败:', error);
-            this.showHeadHandError('头手标定执行失败: ' + error.message);
+            this.currentHeadHandSessionId = null; // 清除会话ID
+            this.showHeadHandCalibrationFailure('头手标定执行失败: ' + error.message);
+        } finally {
+            // 清除标定进行中标志
+            this.isCalibrationInProgress = false;
+            
+            // 恢复按钮状态
+            const btn = document.getElementById('headHandOneClickBtn');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '一键标零';
+            }
         }
     }
     
     // 启动头手标定脚本
     async startHeadHandCalibrationScript() {
         try {
+            // 首先检查是否有正在进行的标定任务
+            const currentResponse = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibrations/current`);
+            if (currentResponse.ok) {
+                const currentSession = await currentResponse.json();
+                if (currentSession && (currentSession.status === 'running' || currentSession.status === 'waiting_for_user')) {
+                    // 有正在进行的会话，询问用户是否要取消
+                    const shouldCancel = confirm('检测到有正在进行的标定任务。是否要取消之前的任务并开始新的头手标定？');
+                    if (!shouldCancel) {
+                        return;
+                    }
+                    // 尝试取消之前的会话
+                    try {
+                        // 清除旧的会话ID，避免收到旧会话的消息
+                        this.currentHeadHandSessionId = null;
+                        
+                        // 首先尝试停止当前标定
+                        const cancelResponse = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibrations/current`, {
+                            method: 'DELETE'
+                        });
+                        if (!cancelResponse.ok) {
+                            console.warn('取消标定会话响应不成功:', cancelResponse.status);
+                            
+                            // 如果失败，尝试清理所有会话
+                            console.log('尝试清理所有标定会话...');
+                            const cleanupResponse = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibrations/sessions`, {
+                                method: 'DELETE'
+                            });
+                            if (cleanupResponse.ok) {
+                                console.log('成功清理所有标定会话');
+                            } else {
+                                console.warn('清理会话也失败了:', cleanupResponse.status);
+                            }
+                        } else {
+                            console.log('成功取消之前的标定会话');
+                        }
+                        // 等待较长时间让后端彻底清理会话
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } catch (e) {
+                        console.warn('取消之前的会话失败:', e);
+                    }
+                }
+            }
+
             // 调用后端API执行One_button_start.sh脚本
             const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/head-hand-calibration`, {
                 method: 'POST',
@@ -1129,8 +1276,12 @@ class CalibrationManager {
                 const data = await response.json();
                 console.log('头手标定脚本启动成功:', data);
                 
-                // 实际应该通过WebSocket获取实时进度，这里暂时用模拟
-                this.simulateHeadHandCalibrationProcess();
+                // 保存当前头手标定会话ID
+                this.currentHeadHandSessionId = data.session_id;
+                console.log('当前头手标定会话ID:', this.currentHeadHandSessionId);
+                
+                // 订阅WebSocket更新以接收脚本执行状态
+                this.subscribeToUpdates();
                 
             } else {
                 const error = await response.json();
@@ -1139,6 +1290,7 @@ class CalibrationManager {
             
         } catch (error) {
             console.error('启动头手标定脚本失败:', error);
+            this.currentHeadHandSessionId = null; // 清除会话ID
             throw error;
         }
     }
@@ -1277,6 +1429,47 @@ class CalibrationManager {
         console.error('头手标定错误:', message);
     }
     
+    // 显示头手标定失败结果（在结果界面中显示）
+    showHeadHandCalibrationFailure(errorMessage) {
+        // 导航到头手标定结果步骤（步骤3）
+        this.goToHeadHandStep(3);
+        
+        // 显示错误结果界面
+        this.showHeadHandError(errorMessage);
+        
+        // 可选：在错误信息中显示具体的错误内容
+        const errorResultDiv = document.getElementById('headHandErrorResult');
+        if (errorResultDiv && errorMessage) {
+            const errorMessageElement = errorResultDiv.querySelector('.error-message');
+            if (errorMessageElement) {
+                errorMessageElement.textContent = errorMessage;
+            } else {
+                // 如果没有专门的错误信息元素，可以在标题下方添加错误详情
+                const titleElement = errorResultDiv.querySelector('h2');
+                if (titleElement && !titleElement.nextElementSibling?.classList.contains('error-details')) {
+                    const errorDetails = document.createElement('div');
+                    errorDetails.className = 'error-details';
+                    errorDetails.style.cssText = 'color: #dc3545; margin-bottom: 20px; font-size: 14px; word-wrap: break-word;';
+                    errorDetails.textContent = errorMessage;
+                    titleElement.parentNode.insertBefore(errorDetails, titleElement.nextSibling);
+                }
+            }
+        }
+        
+        console.log('头手标定失败，显示在结果界面中:', errorMessage);
+    }
+    
+    // 显示头手标定成功结果（在结果界面中显示）
+    showHeadHandCalibrationSuccess() {
+        // 导航到头手标定结果步骤（步骤3）
+        this.goToHeadHandStep(3);
+        
+        // 显示成功结果界面
+        this.showHeadHandSuccess();
+        
+        console.log('头手标定成功，显示在结果界面中');
+    }
+    
     // 保存头手标定结果
     async saveHeadHandCalibration() {
         try {
@@ -1308,7 +1501,19 @@ class CalibrationManager {
     
     // 重新开始头手标定
     restartHeadHandCalibration() {
+        // 防止在标定进行中重启
+        if (this.isCalibrationInProgress) {
+            console.log('标定正在进行中，不能重启');
+            return;
+        }
+        
         console.log('重新开始头手标定...');
+        
+        // 清除标定进行中状态，允许重新开始
+        this.isCalibrationInProgress = false;
+        
+        // 清除会话ID
+        this.currentHeadHandSessionId = null;
         
         // 重置状态
         this.currentHeadHandStep = 1;
@@ -1356,148 +1561,226 @@ class CalibrationManager {
     // 刷新关节数据 - 从后端获取当前关节信息
     async refreshJointData() {
         try {
-            console.log('正在读取关节数据...');
+            console.log('正在刷新关节数据...');
             
-            // 读取当前关节配置文件数据（arms_zero.yaml 和 offset.csv）
-            const [armsResponse, legsResponse] = await Promise.all([
-                fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibration-files/arms_zero/data`),
-                fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibration-files/legs_offset/data`)
-            ]);
+            // 重新加载配置数据
+            await this.loadCurrentConfiguration();
             
-            if (!armsResponse.ok || !legsResponse.ok) {
-                throw new Error('读取关节配置文件失败');
-            }
-            
-            const armsData = await armsResponse.json();
-            const legsData = await legsResponse.json();
-            
-            // 更新关节数据表格
-            this.updateJointDataTable(armsData, legsData);
-            
-            console.log('关节数据读取完成');
+            console.log('关节数据刷新完成');
             this.addCalibrationLog('📖 关节数据已更新');
             
         } catch (error) {
-            console.error('读取关节数据失败:', error);
-            this.addCalibrationLog('⚠️ 读取关节数据失败: ' + error.message);
+            console.error('刷新关节数据失败:', error);
+            this.addCalibrationLog('⚠️ 刷新关节数据失败: ' + error.message);
             // 如果读取失败，加载默认的关节数据结构
             this.loadDefaultJointData();
         }
     }
     
-    // 更新关节数据表格
-    updateJointDataTable(armsData, legsData) {
-        const tableBody = document.querySelector('#jointTable tbody');
-        if (!tableBody) return;
-        
-        // 清空现有数据
-        tableBody.innerHTML = '';
-        
-        // 创建关节数据数组
-        this.jointData = [];
-        
-        // 添加手臂关节数据
-        if (armsData && armsData.joints) {
-            Object.entries(armsData.joints).forEach(([jointName, jointInfo]) => {
-                this.jointData.push({
-                    id: this.jointData.length + 1,
-                    name: jointName,
-                    current_position: jointInfo.current_position || 0.0,
-                    zero_position: jointInfo.zero_position || 0.0,
-                    offset: jointInfo.offset || 0.0,
-                    status: 'normal',
-                    type: 'arm'
-                });
-            });
-        }
-        
-        // 添加腿部关节数据
-        if (legsData && legsData.offsets) {
-            legsData.offsets.forEach((offset, index) => {
-                this.jointData.push({
-                    id: this.jointData.length + 1,
-                    name: `腿部${String(index + 1).padStart(2, '0')}`,
-                    current_position: 0.0, // 腿部数据中可能没有当前位置
-                    zero_position: 0.0,
-                    offset: offset,
-                    status: 'normal',
-                    type: 'leg'
-                });
-            });
-        }
-        
-        // 渲染表格
-        this.renderJointDataTable();
-    }
     
-    // 渲染关节数据表格
+    // 渲染关节数据表格 - 新的紧凑布局
     renderJointDataTable() {
         const tableBody = document.querySelector('#jointTable tbody');
-        if (!tableBody || !this.jointData) return;
+        if (!tableBody || !this.armJointData) return;
         
         tableBody.innerHTML = '';
         
-        this.jointData.forEach(joint => {
+        // 创建手臂关节映射
+        const armJointMap = {};
+        if (this.armJointData) {
+            this.armJointData.forEach(joint => {
+                armJointMap[joint.id] = joint;
+            });
+        }
+        
+        // 创建腿部关节映射
+        const legJointMap = {};
+        if (this.legJointData) {
+            this.legJointData.forEach(joint => {
+                legJointMap[joint.id] = joint;
+            });
+        }
+        
+        // 按照6行布局创建表格
+        for (let i = 1; i <= 6; i++) {
             const row = document.createElement('tr');
             
-            // 状态颜色
-            const statusClass = joint.status === 'warning' ? 'warning' : 
-                               joint.status === 'error' ? 'error' : 'normal';
+            // 左臂关节 (ID: i)
+            const leftArmJoint = armJointMap[i] || { name: `左臂 ${String(i).padStart(2, '0')}`, zero_position: 0 };
+            
+            // 右臂关节 (ID: i+6)
+            const rightArmJoint = armJointMap[i + 6] || { name: `右臂 ${String(i).padStart(2, '0')}`, zero_position: 0 };
+            
+            // 左腿关节 (腿部数据也是从ID 1-6)
+            const leftLegJoint = legJointMap[i] || { name: `左腿 ${String(i).padStart(2, '0')}`, zero_position: 0 };
+            
+            // 右腿关节 (腿部数据ID 7-12)
+            const rightLegJoint = legJointMap[i + 6] || { name: `右腿 ${String(i).padStart(2, '0')}`, zero_position: 0 };
+            
+            // 头部关节 (只有前两行)
+            let headJoint = null;
+            let headValue = 'x.xxx';
+            if (i === 1) {
+                headJoint = armJointMap[13]; // 头部01 (yaw)
+                headValue = headJoint ? headJoint.zero_position.toFixed(3) : 'x.xxx';
+            } else if (i === 2) {
+                headJoint = armJointMap[14]; // 头部02 (pitch)
+                headValue = headJoint ? headJoint.zero_position.toFixed(3) : 'x.xxx';
+            }
+            
+            // 特殊处理最后一列
+            let lastColumnLabel = '';
+            let lastColumnValue = 'x.xxx';
+            let lastColumnJoint = null;
+            
+            if (i === 1) {
+                lastColumnLabel = '头部01 (yaw)';
+                lastColumnJoint = headJoint;
+                lastColumnValue = headValue;
+            } else if (i === 2) {
+                lastColumnLabel = '头部02 (pitch)';
+                lastColumnJoint = headJoint;
+                lastColumnValue = headValue;
+            } else if (i === 3) {
+                lastColumnLabel = '左肩部';
+                lastColumnJoint = legJointMap[13];
+                if (lastColumnJoint) {
+                    lastColumnValue = lastColumnJoint.zero_position.toFixed(3);
+                }
+            } else if (i === 4) {
+                lastColumnLabel = '右肩部';
+                lastColumnJoint = legJointMap[14];
+                if (lastColumnJoint) {
+                    lastColumnValue = lastColumnJoint.zero_position.toFixed(3);
+                }
+            } else {
+                lastColumnLabel = '';
+                lastColumnValue = '';
+            }
             
             row.innerHTML = `
-                <td>${joint.name}</td>
-                <td>${joint.current_position.toFixed(6)}</td>
-                <td>${joint.zero_position.toFixed(6)}</td>
+                <td style="font-size: 12px;">左臂 ${String(i).padStart(2, '0')}</td>
                 <td>
                     <input type="number" 
-                           class="joint-input" 
-                           value="${joint.offset.toFixed(6)}" 
-                           step="0.01" 
-                           min="-180" 
-                           max="180" 
-                           data-joint-id="${joint.id}"
-                           disabled
-                           style="background-color: #f5f5f5; border: 1px solid #ddd; padding: 4px; width: 100px;">
+                           class="joint-input joint-zero-input" 
+                           value="${leftArmJoint.zero_position.toFixed(3)}" 
+                           step="0.001" 
+                           data-joint-id="${i}"
+                           data-joint-name="${leftArmJoint.name}"
+                           data-original-value="${leftArmJoint.zero_position.toFixed(4)}"
+                           style="width: 60px; padding: 2px 4px; text-align: right; font-size: 12px;">
                 </td>
-                <td><span class="status-indicator ${statusClass}">${this.getStatusText(joint.status)}</span></td>
+                <td style="font-size: 12px;">右臂 ${String(i).padStart(2, '0')}</td>
+                <td>
+                    <input type="number" 
+                           class="joint-input joint-zero-input" 
+                           value="${rightArmJoint.zero_position.toFixed(3)}" 
+                           step="0.001" 
+                           data-joint-id="${i + 6}"
+                           data-joint-name="${rightArmJoint.name}"
+                           data-original-value="${rightArmJoint.zero_position.toFixed(4)}"
+                           style="width: 60px; padding: 2px 4px; text-align: right; font-size: 12px;">
+                </td>
+                <td style="font-size: 12px;">左腿 ${String(i).padStart(2, '0')}</td>
+                <td style="color: #999; font-size: 12px;">${leftLegJoint.zero_position !== undefined ? leftLegJoint.zero_position.toFixed(3) : 'x.xxx'}</td>
+                <td style="font-size: 12px;">右腿 ${String(i).padStart(2, '0')}</td>
+                <td style="color: #999; font-size: 12px;">${rightLegJoint.zero_position !== undefined ? rightLegJoint.zero_position.toFixed(3) : 'x.xxx'}</td>
+                <td style="font-size: 12px;">${lastColumnLabel}</td>
+                <td style="font-size: 12px;">
+                    ${i <= 2 && headJoint ? 
+                        `<input type="number" 
+                               class="joint-input joint-zero-input" 
+                               value="${parseFloat(headValue).toFixed(3)}" 
+                               step="0.001" 
+                               data-joint-id="${headJoint.id}"
+                               data-joint-name="${headJoint.name}"
+                               data-original-value="${headValue}"
+                               style="width: 60px; padding: 2px 4px; text-align: right; font-size: 12px;">` 
+                        : (lastColumnValue !== '' ? `<span style="color: #999;">${lastColumnValue}</span>` : '')}
+                </td>
             `;
             
             tableBody.appendChild(row);
-        });
+        }
         
-        // 添加输入框变化监听器
-        this.addJointInputListeners();
-    }
-    
-    // 添加关节输入框监听器
-    addJointInputListeners() {
-        const inputs = document.querySelectorAll('.joint-input');
+        // 添加事件监听器
+        const inputs = tableBody.querySelectorAll('.joint-zero-input');
         inputs.forEach(input => {
+            // 标记原始值，用于识别哪些值被修改了
             input.addEventListener('input', (e) => {
-                const jointId = parseInt(e.target.dataset.jointId);
-                const newValue = parseFloat(e.target.value);
+                const originalValue = parseFloat(e.target.dataset.originalValue);
+                const currentValue = parseFloat(e.target.value);
                 
-                // 更新内存中的数据
-                const joint = this.jointData.find(j => j.id === jointId);
-                if (joint) {
-                    joint.offset = newValue;
-                    
-                    // 检查修改幅度警告
-                    if (Math.abs(newValue) > 0.05) {
-                        joint.status = 'warning';
-                        this.addCalibrationLog(`⚠️ ${joint.name} 偏移量 ${newValue.toFixed(6)} 超过建议值(0.05)`);
-                    } else {
-                        joint.status = 'normal';
-                    }
-                    
-                    // 更新状态显示
-                    const row = e.target.closest('tr');
-                    const statusSpan = row.querySelector('.status-indicator');
-                    statusSpan.className = `status-indicator ${joint.status}`;
-                    statusSpan.textContent = this.getStatusText(joint.status);
+                // 如果值改变了，添加修改标记
+                if (Math.abs(originalValue - currentValue) > 0.0001) {
+                    e.target.style.backgroundColor = '#ffffcc'; // 黄色背景表示已修改
+                    e.target.dataset.modified = 'true';
+                } else {
+                    e.target.style.backgroundColor = '#fff';
+                    e.target.dataset.modified = 'false';
                 }
+                
+                this.onJointValueChange(e);
             });
         });
+    }
+    
+    // 关节值改变事件处理
+    onJointValueChange(event) {
+        const input = event.target;
+        const jointId = parseInt(input.dataset.jointId);
+        const value = parseFloat(input.value);
+        const originalValue = parseFloat(input.dataset.originalValue);
+        
+        // 更新内存中的数据
+        const joint = this.jointData.find(j => j.id === jointId);
+        if (joint) {
+            joint.zero_position = value;
+            
+            // 计算修改量（偏移值）
+            const offset = value - originalValue;
+            
+            // 检查修改量是否超出建议范围
+            if (Math.abs(offset) > 0.05) {
+                const warningMsg = `⚠️ ${joint.name} 修改量 ${offset.toFixed(4)} 超过建议值(±0.05)`;
+                console.warn(warningMsg);
+                // 可以显示一个临时提示，但不阻止修改
+                this.showTemporaryWarning(warningMsg);
+            }
+            
+            console.log(`关节 ${joint.name} 的值从 ${originalValue} 修改为 ${value}，变化量: ${offset.toFixed(4)}`);
+        }
+    }
+    
+    // 显示临时警告
+    showTemporaryWarning(message) {
+        // 查找或创建警告提示元素
+        let warningDiv = document.getElementById('tempWarning');
+        if (!warningDiv) {
+            warningDiv = document.createElement('div');
+            warningDiv.id = 'tempWarning';
+            warningDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #ff9800;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 4px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                z-index: 10000;
+                font-size: 14px;
+            `;
+            document.body.appendChild(warningDiv);
+        }
+        
+        warningDiv.textContent = message;
+        warningDiv.style.display = 'block';
+        
+        // 3秒后自动隐藏
+        setTimeout(() => {
+            warningDiv.style.display = 'none';
+        }, 3000);
     }
     
     // 获取状态文本
@@ -1625,7 +1908,7 @@ class CalibrationManager {
         
         try {
             console.log('保存零点数据...');
-            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/save-zero-point`, {
+            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/save-zero-point`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1731,6 +2014,53 @@ class CalibrationManager {
         // 步骤4现在不显示日志，而是显示位置信息
         // 如果需要显示日志，使用console.log
         console.log('标定日志:', message);
+        
+        // 如果是头手标定，也显示到头手标定界面
+        if (this.calibrationType === 'head_hand') {
+            this.addHeadHandCalibrationLog(message);
+        }
+    }
+    
+    // 添加头手标定日志到界面
+    addHeadHandCalibrationLog(message) {
+        const logOutput = document.getElementById('headHandLogOutput');
+        if (logOutput) {
+            console.log('添加头手标定日志到UI:', message); // 调试日志
+            
+            // 处理多行消息
+            const lines = message.split('\n');
+            
+            lines.forEach(line => {
+                if (line.trim()) { // 只处理非空行
+                    // 创建新的日志行
+                    const logLine = document.createElement('p');
+                    logLine.textContent = line.trim();
+                    logLine.style.margin = '2px 0';
+                    logLine.style.fontSize = '12px';
+                    logLine.style.color = '#e0e0e0';
+                    
+                    // 根据日志内容添加颜色
+                    if (line.includes('✓') || line.includes('完成')) {
+                        logLine.style.color = '#4caf50'; // 绿色表示成功
+                    } else if (line.includes('步骤') || line.includes('===')) {
+                        logLine.style.color = '#2196f3'; // 蓝色表示步骤
+                    } else if (line.includes('标定中') || line.includes('采集数据')) {
+                        logLine.style.color = '#ff9800'; // 橙色表示进行中
+                    }
+                    
+                    // 添加到日志输出区域
+                    logOutput.appendChild(logLine);
+                }
+            });
+            
+            // 滚动到底部
+            const parentContainer = logOutput.parentElement;
+            if (parentContainer) {
+                parentContainer.scrollTop = parentContainer.scrollHeight;
+            }
+        } else {
+            console.warn('找不到headHandLogOutput元素');
+        }
     }
     
     addPositionData(message) {
@@ -1778,23 +2108,22 @@ class CalibrationManager {
         try {
             console.log('正在保存关节数据...');
             
-            // 分别过滤手臂、头部和腿部数据
-            const armAndHeadData = this.jointData.filter(j => j.type === 'arm' || j.type === 'head');
-            const legData = this.jointData.filter(j => j.type === 'leg');
+            // 分别获取手臂、头部和腿部数据
+            const armAndHeadData = this.armJointData || this.jointData.filter(j => j.type === 'arm' || j.type === 'head');
+            const legData = this.legJointData || [];
             
             // 保存手臂和头部数据到 arms_zero.yaml
             if (armAndHeadData.length > 0) {
                 const armsPayload = {
-                    joints: {}
+                    joint_data: armAndHeadData.map(joint => ({
+                        id: joint.id,
+                        name: joint.name,
+                        current_position: joint.current_position || 0.0,
+                        zero_position: joint.zero_position || 0.0,
+                        offset: joint.offset || 0.0,
+                        status: joint.status || 'normal'
+                    }))
                 };
-                
-                armAndHeadData.forEach(joint => {
-                    armsPayload.joints[joint.name] = {
-                        current_position: joint.current_position,
-                        zero_position: joint.zero_position,
-                        offset: joint.offset
-                    };
-                });
                 
                 console.log('保存手臂和头部数据:', armsPayload);
                 const armsResponse = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/calibration-files/arms_zero/data`, {
@@ -1806,19 +2135,31 @@ class CalibrationManager {
                 });
                 
                 if (!armsResponse.ok) {
-                    const error = await armsResponse.json();
-                    throw new Error(`保存手臂数据失败: ${error.detail || armsResponse.statusText}`);
+                    const errorText = await armsResponse.text();
+                    let errorDetail = armsResponse.statusText;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorDetail = errorJson.detail || errorDetail;
+                    } catch (e) {
+                        errorDetail = errorText || errorDetail;
+                    }
+                    throw new Error(`保存手臂数据失败: ${errorDetail}`);
                 }
                 
                 console.log('手臂和头部数据保存成功');
             }
             
             // 保存腿部数据到 offset.csv
-            if (legData.length > 0) {
-                const legOffsets = legData.map(joint => joint.offset);
-                
+            if (legData && legData.length > 0) {
                 const legPayload = {
-                    offsets: legOffsets
+                    joint_data: legData.map(joint => ({
+                        id: joint.id,
+                        name: joint.name,
+                        current_position: joint.current_position || 0.0,
+                        zero_position: joint.zero_position || 0.0,
+                        offset: joint.offset || 0.0,
+                        status: joint.status || 'normal'
+                    }))
                 };
                 
                 console.log('保存腿部数据:', legPayload);
@@ -1831,8 +2172,15 @@ class CalibrationManager {
                 });
                 
                 if (!legResponse.ok) {
-                    const error = await legResponse.json();
-                    throw new Error(`保存腿部数据失败: ${error.detail || legResponse.statusText}`);
+                    const errorText = await legResponse.text();
+                    let errorDetail = legResponse.statusText;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorDetail = errorJson.detail || errorDetail;
+                    } catch (e) {
+                        errorDetail = errorText || errorDetail;
+                    }
+                    throw new Error(`保存腿部数据失败: ${errorDetail}`);
                 }
                 
                 console.log('腿部数据保存成功');
@@ -1941,7 +2289,7 @@ class CalibrationManager {
             this.addCalibrationLog('⚠️ 注意：机器人将进行缩腿动作，请确保周围环境安全！');
             
             // 调用API执行验证
-            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/validate`, {
+            const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/validate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1964,7 +2312,7 @@ class CalibrationManager {
         try {
             if (this.currentSession) {
                 // 如果有会话，确认完成
-                const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/confirm-tools-removed`, {
+                const response = await fetch(`${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/confirm-tools-removed`, {
                     method: 'POST'
                 });
                 
@@ -2126,9 +2474,21 @@ class CalibrationManager {
     updateZeroPointCalibrationStatus(data) {
         console.log('零点标定状态更新:', data);
         
-        // 保存会话ID
+        // 更新会话信息，保持对象结构
         if (data.session_id) {
-            this.currentSession = data.session_id;
+            if (typeof this.currentSession === 'object' && this.currentSession !== null) {
+                // 如果currentSession是对象，更新其属性
+                this.currentSession.session_id = data.session_id;
+                this.currentSession.current_step = data.current_step;
+                this.currentSession.status = data.status;
+            } else {
+                // 如果currentSession不是对象，创建新对象
+                this.currentSession = {
+                    session_id: data.session_id,
+                    current_step: data.current_step,
+                    status: data.status
+                };
+            }
         }
         
         // 先根据后端步骤同步前端步骤
@@ -2258,6 +2618,21 @@ class CalibrationManager {
 
     updateCalibrationStatus(data) {
         console.log('标定状态更新:', data);
+        
+        // 处理头手标定成功状态
+        if (data.calibration_type === 'head_hand' && data.status === 'success') {
+            // 只处理来自当前活动会话的成功消息
+            if (data.session_id === this.currentHeadHandSessionId) {
+                console.log('头手标定成功，准备跳转到结果页面');
+                this.isCalibrationInProgress = false;
+                this.currentHeadHandSessionId = null;
+                
+                // 跳转到头手标定成功结果页面
+                this.showHeadHandCalibrationSuccess();
+            } else {
+                console.log('忽略旧会话的成功消息:', data.session_id, '当前会话ID:', this.currentHeadHandSessionId);
+            }
+        }
     }
 
     goBackToMain() {
@@ -2272,8 +2647,8 @@ class CalibrationManager {
         this.currentSession = null;
         this.currentStep = 1;
         this.calibrationType = null;
-        this.toolsConfirmed = [false, false, false, false];
         this.lastLoggedStatus = {}; // 重置日志状态
+        this.isProcessingStep = false; // 重置步骤处理状态
         
         // 清除选中状态
         document.querySelectorAll('.calibration-card').forEach(card => card.classList.remove('selected'));
@@ -2292,7 +2667,7 @@ class CalibrationManager {
                 try {
                     // 调用后端API返回到步骤2
                     const response = await fetch(
-                        `${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession}/go-to-step`,
+                        `${this.API_BASE_URL}/robots/${this.currentRobot}/zero-point-calibration/${this.currentSession.session_id}/go-to-step`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -2384,6 +2759,22 @@ function goToPreviousHeadHandStep() {
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', () => {
     window.calibrationManager = new CalibrationManager();
+});
+
+// 页面卸载时清理资源
+window.addEventListener('beforeunload', () => {
+    if (window.calibrationManager) {
+        // 清理WebSocket连接
+        if (window.calibrationManager.websocket) {
+            window.calibrationManager.websocket.onclose = null;
+            window.calibrationManager.websocket.close();
+        }
+        
+        // 清理重连定时器
+        if (window.calibrationManager.reconnectTimer) {
+            clearTimeout(window.calibrationManager.reconnectTimer);
+        }
+    }
 });
 
 // 添加CSS样式

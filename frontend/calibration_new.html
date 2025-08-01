@@ -154,7 +154,6 @@
                                     <h4>安装工装</h4>
                                     <p>将辅助工装插入腿部的插销中</p>
                                 </div>
-                                <button class="tool-confirm-btn">确认</button>
                             </div>
                             
                             <div class="tool-item" data-tool="1">
@@ -166,7 +165,6 @@
                                     <h4>安装工装</h4>
                                     <p>将辅助工装插入脚部的插销中</p>
                                 </div>
-                                <button class="tool-confirm-btn">确认</button>
                             </div>
                             
                             <div class="tool-item" data-tool="2">
@@ -178,7 +176,6 @@
                                     <h4>摆好手臂</h4>
                                     <p>手臂自然下垂，摆正两边</p>
                                 </div>
-                                <button class="tool-confirm-btn">确认</button>
                             </div>
                             
                             <div class="tool-item" data-tool="3">
@@ -190,13 +187,12 @@
                                     <h4>摆正头部</h4>
                                     <p>头部左右居中，头部都面保持直立</p>
                                 </div>
-                                <button class="tool-confirm-btn">确认</button>
                             </div>
                         </div>
                         
                         <div class="step-actions">
                             <button class="btn btn-secondary" onclick="goBackToMain()">返回</button>
-                            <button id="nextStepBtn" class="btn btn-primary" disabled>下一步</button>
+                            <button id="nextStepBtn" class="btn btn-primary">下一步</button>
                         </div>
                     </div>
 
@@ -246,11 +242,16 @@
                             <table id="jointTable">
                                 <thead>
                                     <tr>
-                                        <th>关节</th>
-                                        <th>当前位置</th>
-                                        <th>零点位置</th>
-                                        <th>偏移量</th>
-                                        <th>状态</th>
+                                        <th width="60">左臂</th>
+                                        <th width="70">当前值</th>
+                                        <th width="60">右臂</th>
+                                        <th width="70">当前值</th>
+                                        <th width="60">左腿</th>
+                                        <th width="70">当前值</th>
+                                        <th width="60">右腿</th>
+                                        <th width="70">当前值</th>
+                                        <th width="80">头部</th>
+                                        <th width="70">当前值</th>
                                     </tr>
                                 </thead>
                                 <tbody>

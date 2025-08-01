@@ -24,7 +24,9 @@ from app.schemas.calibration import (
     CalibrationConfigCheckResponse,
     CalibrationModeRequest,
     JointDataSchema,
-    CalibrationExecuteRequest
+    CalibrationExecuteRequest,
+    JointDebugRequest,
+    JointDebugResponse
 )
 
 router = APIRouter()
@@ -1051,10 +1053,6 @@ async def start_head_hand_calibration(
             calibration_type="head_hand"
         )
         
-        # 立即开始执行One_button_start.sh脚本
-        import asyncio
-        asyncio.create_task(_execute_head_hand_script(robot_id, session.session_id))
-        
         return {
             "session_id": session.session_id,
             "message": "头手标定已启动",
@@ -1216,10 +1214,15 @@ EOF
                 if output:
                     output_callback(output)
                 await asyncio.sleep(0.5)
-                
-            success = True
-            stdout = "Head-hand calibration simulation completed"
-            stderr = ""
+            
+            # 获取脚本的实际执行结果
+            success = ssh_service.simulator.get_script_result(script_id)
+            if success:
+                stdout = "Head-hand calibration simulation completed successfully"
+                stderr = ""
+            else:
+                stdout = "Head-hand calibration simulation failed"
+                stderr = "AprilTag detection failed or calibration precision not met"
         else:
             # 真实模式：执行实际脚本
             success, stdout, stderr = await ssh_service.execute_command(
@@ -1239,6 +1242,13 @@ EOF
         }
         await connection_manager.broadcast(completion_message)
         
+        # 清理标定会话
+        try:
+            await calibration_service.stop_calibration(session_id)
+            logger.info(f"头手标定会话已清理: {session_id}")
+        except Exception as cleanup_error:
+            logger.warning(f"清理头手标定会话失败: {cleanup_error}")
+        
         logger.info(f"头手标定脚本执行完成: robot_id={robot_id}, success={success}")
         
     except Exception as e:
@@ -1252,6 +1262,13 @@ EOF
             "error": str(e)
         }
         await connection_manager.broadcast(error_message)
+        
+        # 清理标定会话
+        try:
+            await calibration_service.stop_calibration(session_id)
+            logger.info(f"头手标定会话已清理（异常情况）: {session_id}")
+        except Exception as cleanup_error:
+            logger.warning(f"清理头手标定会话失败（异常情况）: {cleanup_error}")
 
 
 @router.get("/{robot_id}/zero-point-calibration/{session_id}/summary")
@@ -1277,4 +1294,104 @@ async def get_calibration_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取标定汇总时发生错误: {str(e)}"
+        )
+
+
+@router.post("/{robot_id}/zero-point-calibration/{session_id}/joint-debug")
+async def debug_joints(
+    robot_id: str,
+    session_id: str,
+    request: JointDebugRequest,
+    db: Session = Depends(get_db)
+) -> JointDebugResponse:
+    """执行关节调试命令"""
+    # 检查机器人是否存在
+    robot = db.query(Robot).filter(Robot.id == robot_id).first()
+    if not robot:
+        robot = db.query(Robot).filter(Robot.sn_number == robot_id).first()
+        if not robot:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"设备不存在: {robot_id}"
+            )
+    
+    # 检查标定会话是否存在
+    session = await zero_point_calibration_service.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="标定会话不存在"
+        )
+    
+    try:
+        # 构建关节名称和位置列表
+        joint_names = []
+        positions = []
+        
+        for joint in request.joints:
+            joint_id = joint['id'] if isinstance(joint, dict) else joint.id
+            joint_name = joint.get("name", f"joint{joint_id}") if isinstance(joint, dict) else getattr(joint, 'name', f"joint{joint_id}")
+            joint_position = joint["position"] if isinstance(joint, dict) else joint.position
+            
+            joint_names.append(joint_name)
+            positions.append(float(joint_position))
+        
+        # 构建ROS命令
+        # 格式化名称列表和位置列表
+        names_str = ", ".join([f"'{name}'" for name in joint_names])
+        positions_str = ", ".join([str(pos) for pos in positions])
+        
+        # 构建完整的rostopic pub命令
+        command = f"""rostopic pub -1 /kuavo_arm_traj sensor_msgs/JointState "header: {{seq: 0, stamp: {{secs: 0, nsecs: 0}}, frame_id: ''}}
+name: [{names_str}]
+position: [{positions_str}]
+velocity: []
+effort: []" """
+        
+        # 执行命令
+        success, stdout, stderr = await ssh_service.execute_command(robot_id, command)
+        
+        if success:
+            # 广播日志消息
+            log_message = f"✅ 关节调试命令已执行：调整了 {len(request.joints)} 个关节"
+            await zero_point_calibration_service._broadcast_log(session, log_message)
+            
+            # 记录每个关节的调整
+            for joint in request.joints:
+                joint_id = joint['id'] if isinstance(joint, dict) else joint.id
+                joint_name = joint.get("name", f"joint{joint_id}") if isinstance(joint, dict) else getattr(joint, 'name', f"joint{joint_id}")
+                joint_position = joint["position"] if isinstance(joint, dict) else joint.position
+                detail_log = f"  - {joint_name} -> {joint_position} rad"
+                await zero_point_calibration_service._broadcast_log(session, detail_log)
+            
+            return JointDebugResponse(
+                success=True,
+                message=f"成功调整 {len(request.joints)} 个关节",
+                command_executed=command
+            )
+        else:
+            error_msg = stderr if stderr else "命令执行失败"
+            await zero_point_calibration_service._broadcast_log(session, f"❌ 关节调试失败: {error_msg}")
+            
+            return JointDebugResponse(
+                success=False,
+                message="关节调试命令执行失败",
+                error=error_msg,
+                command_executed=command
+            )
+            
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        
+        # 安全地尝试发送日志
+        try:
+            if 'session' in locals() and session and hasattr(session, 'session_id'):
+                await zero_point_calibration_service._broadcast_log(session, f"❌ 关节调试异常: {str(e)}")
+        except:
+            pass  # 忽略日志发送失败
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"执行关节调试时发生错误: {str(e)}"
         )

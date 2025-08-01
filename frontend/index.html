@@ -39,6 +39,37 @@
                     <div id="robotsList" class="device-list">
                         <!-- 动态生成的设备列表 -->
                     </div>
+                    
+                    <!-- 分页控件 -->
+                    <div id="paginationContainer" class="pagination-container">
+                        <div class="pagination-info">
+                            <span id="paginationInfo">共 0 条记录</span>
+                        </div>
+                        <div class="pagination">
+                            <button id="prevPageBtn" class="pagination-btn" disabled>
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M10 12L6 8l4-4"/>
+                                </svg>
+                            </button>
+                            <div id="pageNumbers" class="page-numbers">
+                                <!-- 动态生成的页码 -->
+                            </div>
+                            <button id="nextPageBtn" class="pagination-btn" disabled>
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M6 12l4-4-4-4"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="page-size-selector">
+                            <label>每页显示：</label>
+                            <select id="pageSizeSelect">
+                                <option value="5">5条</option>
+                                <option value="10" selected>10条</option>
+                                <option value="20">20条</option>
+                                <option value="50">50条</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>

@@ -1,6 +1,6 @@
 import asyncio
 import paramiko
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
 import logging
 import re
 from datetime import datetime
@@ -156,11 +156,18 @@ class CalibrationService:
         if session.robot_id in self.active_calibrations:
             self.active_calibrations[session.robot_id]["script_id"] = session.simulator_script_id
         
-        # 监控输出
-        while ssh_service.simulator.is_script_running(session.simulator_script_id):
+        # 监控输出 - 改进监控逻辑避免过早退出
+        script_finished = False
+        no_output_count = 0
+        max_no_output_cycles = 50  # 最多等待5秒没有新输出
+        
+        while not script_finished:
+            script_running = ssh_service.simulator.is_script_running(session.simulator_script_id)
+            
             # 获取输出
             output = ssh_service.simulator.get_script_output(session.simulator_script_id)
             if output:
+                no_output_count = 0  # 重置计数器
                 lines = output.split('\n')
                 for line in lines:
                     if line.strip():
@@ -174,26 +181,50 @@ class CalibrationService:
                                 session.user_prompt = line
                                 await self._broadcast_status(session)
                                 
-                                # 等待用户响应
-                                session.user_response_event.clear()
-                                await session.user_response_event.wait()
+                                # 模拟器模式下自动响应，无需等待用户
+                                await asyncio.sleep(0.5)  # 短暂延迟模拟用户思考时间
                                 
-                                # 发送响应到模拟器
-                                response = session.user_response or default_response
+                                # 发送默认响应到模拟器
                                 ssh_service.simulator.send_script_input(
                                     session.simulator_script_id, 
-                                    response
+                                    default_response
                                 )
                                 
                                 session.status = "running"
                                 session.user_prompt = None
                                 await self._broadcast_status(session)
                                 break
+            else:
+                no_output_count += 1
+            
+            # 检查脚本是否真正完成
+            if not script_running:
+                if no_output_count >= max_no_output_cycles:
+                    # 脚本已停止且很长时间没有新输出，认为真正完成
+                    script_finished = True
+                    break
+                # 否则继续等待，可能还有缓冲输出
             
             await asyncio.sleep(0.1)
         
-        # 标定完成
-        session.status = "success"
+        # 检查脚本执行结果
+        execution_success = ssh_service.simulator.get_script_result(session.simulator_script_id)
+        if execution_success:
+            session.status = "success"
+        else:
+            session.status = "failed"
+            session.error_message = "头手标定失败"
+            
+            # 对于头手标定失败，发送特定的错误消息
+            if session.calibration_type == "head_hand":
+                error_message = {
+                    "type": "head_hand_calibration_error",
+                    "session_id": session.session_id,
+                    "robot_id": session.robot_id,
+                    "error": "AprilTag检测失败或标定精度不达标"
+                }
+                await connection_manager.send_to_robot_subscribers(session.robot_id, error_message)
+        
         await self._broadcast_status(session)
     
     async def _run_real_calibration(self, session: CalibrationSession):
@@ -258,14 +289,12 @@ class CalibrationService:
                                     session.user_prompt = line
                                     await self._broadcast_status(session)
                                     
-                                    # 等待用户响应
-                                    session.user_response_event.clear()
-                                    await session.user_response_event.wait()
+                                    # 自动响应，无需等待用户
+                                    await asyncio.sleep(0.5)  # 短暂延迟模拟处理时间
                                     
-                                    # 发送响应
-                                    response = session.user_response or default_response
-                                    channel.send(f"{response}\n")
-                                    logger.info(f"发送用户响应: {response}")
+                                    # 发送默认响应
+                                    channel.send(f"{default_response}\n")
+                                    logger.info(f"自动发送响应: {default_response}")
                                     
                                     session.status = "running"
                                     session.user_prompt = None
@@ -288,14 +317,12 @@ class CalibrationService:
                                 session.user_prompt = buffer
                                 await self._broadcast_status(session)
                                 
-                                # 等待用户响应
-                                session.user_response_event.clear()
-                                await session.user_response_event.wait()
+                                # 自动响应，无需等待用户
+                                await asyncio.sleep(0.5)  # 短暂延迟模拟处理时间
                                 
-                                # 发送响应
-                                response = session.user_response or default_response
-                                channel.send(f"{response}\n")
-                                logger.info(f"发送用户响应: {response}")
+                                # 发送默认响应
+                                channel.send(f"{default_response}\n")
+                                logger.info(f"自动发送响应: {default_response}")
                                 
                                 session.status = "running"
                                 session.user_prompt = None
@@ -318,14 +345,12 @@ class CalibrationService:
                             session.user_prompt = buffer
                             await self._broadcast_status(session)
                             
-                            # 等待用户响应
-                            session.user_response_event.clear()
-                            await session.user_response_event.wait()
+                            # 自动响应，无需等待用户
+                            await asyncio.sleep(0.5)  # 短暂延迟模拟处理时间
                             
-                            # 发送响应
-                            response = session.user_response or default_response
-                            channel.send(f"{response}\n")
-                            logger.info(f"发送用户响应: {response}")
+                            # 发送默认响应
+                            channel.send(f"{default_response}\n")
+                            logger.info(f"自动发送响应: {default_response}")
                             
                             session.status = "running"
                             session.user_prompt = None
@@ -351,16 +376,15 @@ class CalibrationService:
         await self._broadcast_status(session)
     
     async def send_user_response(self, session_id: str, response: str):
-        """发送用户响应"""
+        """发送用户响应（自动化标定中此方法不执行任何操作）"""
         session = self.sessions.get(session_id)
         if not session:
             raise Exception("会话不存在")
         
-        if session.status != "waiting_for_user":
-            raise Exception("当前不在等待用户输入状态")
-        
-        session.user_response = response
-        session.user_response_event.set()
+        # 在自动化标定中，响应已经自动发送，此方法仅为兼容性保留
+        logger = logging.getLogger(__name__)
+        logger.info(f"用户响应请求被忽略（自动化标定中）: session_id={session_id}, response={response}")
+        return  # 直接返回，不做任何操作
     
     async def stop_calibration(self, session_id: str):
         """停止标定"""
@@ -407,7 +431,7 @@ class CalibrationService:
         """获取会话"""
         return self.sessions.get(session_id)
     
-    def get_robot_active_sessions(self, robot_id: str) -> list[CalibrationSession]:
+    def get_robot_active_sessions(self, robot_id: str) -> List[CalibrationSession]:
         """获取机器人的所有活动会话"""
         active_sessions = []
         for session in self.sessions.values():

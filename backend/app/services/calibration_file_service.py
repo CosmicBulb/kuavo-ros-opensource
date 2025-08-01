@@ -40,6 +40,7 @@ class CalibrationFileService:
     
     def __init__(self):
         self.arms_zero_path = "/home/lab/.config/lejuconfig/arms_zero.yaml"
+        # 注意：文档中可能写成了 offect.csv，但实际应该是 offset.csv
         self.legs_offset_path = "/home/lab/.config/lejuconfig/offset.csv"
         self.config_dir = "/home/lab/.config/lejuconfig"
         
@@ -156,8 +157,16 @@ class CalibrationFileService:
             yaml_data = yaml.safe_load(content)
             joint_data_list = []
             
+            # 根据实际文件格式：joint_02 到 joint_13，然后 neck_01, neck_02
+            # 我们的ID 1-14 映射到实际文件中的 joint_02-joint_13, neck_01-neck_02
             for i in range(1, 15):
-                joint_name = f"joint_{i:02d}" if i < 13 else f"neck_{i-12:02d}"
+                if i <= 12:
+                    # ID 1-12 对应 joint_02 到 joint_13
+                    joint_name = f"joint_{i+1:02d}"
+                else:
+                    # ID 13-14 对应 neck_01, neck_02
+                    joint_name = f"neck_{i-12:02d}"
+                
                 zero_position = yaml_data.get(joint_name, 0.0)
                 
                 joint_data_list.append(JointData(
@@ -177,20 +186,21 @@ class CalibrationFileService:
     def _generate_mock_arms_data(self) -> List[JointData]:
         """生成模拟手臂数据"""
         import random
+        import math
         mock_data = []
         
-        # 生成更真实的模拟数据
+        # 生成更真实的模拟数据（使用弧度值）
         base_positions = {
-            1: 0.0, 2: -15.0, 3: 45.0, 4: -30.0, 5: 0.0, 6: 0.0,  # 左臂
-            7: 0.0, 8: 15.0, 9: -45.0, 10: 30.0, 11: 0.0, 12: 0.0,  # 右臂
+            1: 0.051, 2: 0.011, 3: 0.021, 4: -0.034, 5: -0.021, 6: 0.027,  # 左臂
+            7: -0.021, 8: 0.0, 9: 0.0, 10: 0.0, 11: 0.0, 12: 0.0,  # 右臂
             13: 0.0, 14: 0.0  # 头部
         }
         
         for i in range(1, 15):
             # 生成一些随机但合理的关节数据
             base_pos = base_positions.get(i, 0.0)
-            current_pos = base_pos + random.uniform(-2, 2)  # 当前位置有小幅偏差
-            zero_pos = base_pos + random.uniform(-0.5, 0.5)  # 零点位置接近基准
+            current_pos = base_pos + random.uniform(-0.01, 0.01)  # 当前位置有小幅偏差
+            zero_pos = base_pos  # 零点位置使用基准值
             
             # 随机设置一些警告状态
             status = "normal"
@@ -214,18 +224,18 @@ class CalibrationFileService:
         import random
         mock_data = []
         
-        # 生成更真实的腿部数据
+        # 生成更真实的腿部数据（使用弧度值）
         base_positions = {
-            1: 0.0, 2: 0.0, 3: -30.0, 4: 60.0, 5: -30.0, 6: 0.0,  # 左腿
-            7: 0.0, 8: 0.0, 9: -30.0, 10: 60.0, 11: -30.0, 12: 0.0,  # 右腿
+            1: 0.0, 2: 0.0, 3: -0.523, 4: 1.047, 5: -0.523, 6: 0.0,  # 左腿 (-30°, 60°, -30° 转换为弧度)
+            7: 0.0, 8: 0.0, 9: -0.523, 10: 1.047, 11: -0.523, 12: 0.0,  # 右腿
             13: 0.0, 14: 0.0  # 肩部
         }
         
         for i in range(1, 15):
             # 生成一些随机但合理的关节数据
             base_pos = base_positions.get(i, 0.0)
-            current_pos = base_pos + random.uniform(-3, 3)  # 腿部偏差稍大
-            zero_pos = base_pos + random.uniform(-1, 1)
+            current_pos = base_pos + random.uniform(-0.052, 0.052)  # 腿部偏差约±3度
+            zero_pos = base_pos + random.uniform(-0.017, 0.017)  # 零点偏差约±1度
             
             # 随机设置状态
             status = "normal"
@@ -324,8 +334,10 @@ class CalibrationFileService:
             
             for joint in joint_data:
                 if joint.id <= 12:
-                    key = f"joint_{joint.id:02d}"
+                    # ID 1-12 对应 joint_02 到 joint_13
+                    key = f"joint_{joint.id+1:02d}"
                 else:
+                    # ID 13-14 对应 neck_01, neck_02
                     key = f"neck_{joint.id-12:02d}"
                 yaml_data[key] = float(joint.zero_position)
             
@@ -427,29 +439,29 @@ class CalibrationFileService:
             import random
             positions = {}
             
-            # 基于手臂和腿部的典型位置生成当前位置
+            # 基于手臂和腿部的典型位置生成当前位置（使用弧度值）
             # 上半身：2-15号电机
             arm_base = {
-                2: 0.0, 3: -15.0, 4: 45.0, 5: -30.0, 6: 0.0, 7: 0.0,  # 左臂
-                8: 0.0, 9: 15.0, 10: -45.0, 11: 30.0, 12: 0.0, 13: 0.0,  # 右臂
+                2: 0.0, 3: -0.261, 4: 0.785, 5: -0.523, 6: 0.0, 7: 0.0,  # 左臂 (-15°, 45°, -30° 转换为弧度)
+                8: 0.0, 9: 0.261, 10: -0.785, 11: 0.523, 12: 0.0, 13: 0.0,  # 右臂
                 14: 0.0, 15: 0.0  # 头部
             }
             # 下半身：1-14号电机
             leg_base = {
-                1: 0.0, 2: 0.0, 3: -30.0, 4: 60.0, 5: -30.0, 6: 0.0,  # 左腿
-                7: 0.0, 8: 0.0, 9: -30.0, 10: 60.0, 11: -30.0, 12: 0.0,  # 右腿
+                1: 0.0, 2: 0.0, 3: -0.523, 4: 1.047, 5: -0.523, 6: 0.0,  # 左腿 (-30°, 60°, -30° 转换为弧度)
+                7: 0.0, 8: 0.0, 9: -0.523, 10: 1.047, 11: -0.523, 12: 0.0,  # 右腿
                 13: 0.0, 14: 0.0  # 躯干肩部
             }
             
             # 上半身位置
             for i in range(2, 16):
                 base = arm_base.get(i, 0.0)
-                positions[i] = base + random.uniform(-2, 2)
+                positions[i] = base + random.uniform(-0.035, 0.035)  # 偏差约±2度
             
             # 下半身位置
             for i in range(1, 15):
                 base = leg_base.get(i, 0.0)
-                positions[i] = base + random.uniform(-3, 3)
+                positions[i] = base + random.uniform(-0.052, 0.052)  # 偏差约±3度
             
             logger.info(f"模拟器模式：生成了关节位置")
             return positions

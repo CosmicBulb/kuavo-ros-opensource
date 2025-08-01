@@ -2,7 +2,7 @@ import asyncio
 import random
 import json
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 import threading
 import queue
@@ -17,9 +17,9 @@ class RobotSimulator:
         self.is_upper_connected = False  # 上位机连接状态
         self.robot_info = {
             "model": "Kuavo 4 pro",
-            "sn": "SIM123456789",
+            "sn": "qwert3459592sfag",
             "end_effector": "灵巧手",
-            "version": "1.2.3-sim"
+            "version": "version 1.2.3"
         }
         self.upper_info = {
             "model": "Upper Computer",
@@ -29,8 +29,10 @@ class RobotSimulator:
         }
         self.processes = {}
         self.running_scripts = {}
+        # 添加状态跟踪，用于交替成功/失败模拟
+        self.last_head_hand_result = True  # True=成功, False=失败
         
-    def connect(self, host: str, port: int, username: str, password: str) -> tuple[bool, Optional[str]]:
+    def connect(self, host: str, port: int, username: str, password: str) -> Tuple[bool, Optional[str]]:
         """模拟SSH连接"""
         # 移除阻塞的sleep，改为立即返回
         # 如果需要模拟延迟，应该在调用方使用asyncio.sleep
@@ -53,7 +55,7 @@ class RobotSimulator:
             self.stop_script(script_id)
         return True
     
-    def connect_upper_computer(self, host: str, port: int, username: str, password: str) -> tuple[bool, Optional[str]]:
+    def connect_upper_computer(self, host: str, port: int, username: str, password: str) -> Tuple[bool, Optional[str]]:
         """模拟上位机SSH连接"""
         # 模拟验证
         if password == "wrong_password":
@@ -74,7 +76,7 @@ class RobotSimulator:
         self.is_upper_connected = False
         return True
     
-    def execute_command(self, command: str) -> tuple[bool, str, str]:
+    def execute_command(self, command: str) -> Tuple[bool, str, str]:
         """模拟在机器人执行命令"""
         if not self.is_connected:
             return False, "", "未连接"
@@ -84,10 +86,25 @@ class RobotSimulator:
             return True, json.dumps(self.robot_info), ""
         
         elif "rosversion" in command:
-            return True, "1.2.3-sim", ""
+            return True, "version 1.2.3", ""
         
         elif "echo $ROBOT_VERSION" in command:
-            return True, "45", ""
+            return True, "4pro", ""
+        
+        elif "cat /home/lab/kuavo_robot_hardware/version.txt" in command:
+            return True, "version 1.2.3", ""
+        
+        # 模拟ROS服务状态检查
+        elif "rosnode list" in command and "grep -q controller" in command:
+            return True, "正常", ""
+        
+        # 模拟电量查询
+        elif "cat /sys/class/power_supply/BAT0/capacity" in command:
+            return True, "85", ""
+        
+        # 模拟故障码查询
+        elif "cat /var/log/robot/error_code" in command:
+            return True, "", ""
         
         # 模拟读取零点配置文件
         elif "cat" in command and "arms_zero.yaml" in command:
@@ -151,10 +168,35 @@ class RobotSimulator:
         elif "apt-get update" in command and "apt-get install" in command and "expect" in command:
             return True, "expect installed successfully", ""
         
+        # === 一键标定命令支持 ===
+        elif "roslaunch" in command and "load_kuavo_real.launch" in command:
+            # 模拟roslaunch标定命令
+            if "cali:=true" in command:
+                output = "[模拟器] 启动机器人标定系统\n"
+                output += "[ INFO] 正在初始化ROS节点...\n"
+                output += "[ INFO] 机器人控制器已启动\n"
+                output += "[ INFO] 等待机器人初始化...\n"
+                
+                if "cali_arm:=true" in command and "cali_leg:=true" in command:
+                    output += "[ INFO] 开始全身零点标定...\n"
+                    output += "[ INFO] 手臂标定模式已启用\n"
+                    output += "[ INFO] 腿部标定模式已启用\n"
+                elif "cali_arm:=true" in command:
+                    output += "[ INFO] 开始手臂零点标定...\n"
+                    output += "[ INFO] 手臂标定模式已启用\n"
+                elif "cali_leg:=true" in command:
+                    output += "[ INFO] 开始腿部零点标定...\n"
+                    output += "[ INFO] 腿部标定模式已启用\n"
+                
+                output += "[ INFO] 标定系统已就绪，等待用户指令...\n"
+                return True, output, ""
+            else:
+                return True, "ROS launch file started", ""
+        
         else:
             return True, f"Robot command executed: {command}", ""
     
-    def execute_upper_command(self, command: str) -> tuple[bool, str, str]:
+    def execute_upper_command(self, command: str) -> Tuple[bool, str, str]:
         """模拟在上位机执行命令"""
         if not self.is_upper_connected:
             return False, "", "上位机未连接"
@@ -184,6 +226,28 @@ class RobotSimulator:
         elif "pkill -f apriltag" in command:
             return True, "AprilTag processes terminated", ""
         
+        elif "rostopic pub" in command and "/kuavo_arm_traj" in command:
+            # 模拟关节调试命令
+            import re
+            # 提取关节名称
+            names_match = re.search(r"name:\s*\[(.*?)\]", command)
+            positions_match = re.search(r"position:\s*\[(.*?)\]", command)
+            
+            if names_match and positions_match:
+                names = names_match.group(1).strip()
+                positions = positions_match.group(1).strip()
+                joint_count = len(names.split(','))
+                
+                output = f"[模拟器] 执行关节调试命令\n"
+                output += f"调整 {joint_count} 个关节到目标位置\n"
+                output += f"关节: {names}\n"
+                output += f"位置: {positions}\n"
+                output += "机器人正在移动到目标位置..."
+                
+                return True, output, ""
+            else:
+                return True, "Joint debug command executed", ""
+        
         else:
             return True, f"Upper computer command executed: {command}", ""
     
@@ -194,7 +258,19 @@ class RobotSimulator:
         if script_type == "zero_point":
             script = ZeroPointCalibrationScript()
         elif script_type == "head_hand":
-            script = HeadHandCalibrationScript()
+            # 头手标定使用交替成功/失败模式
+            should_succeed = not self.last_head_hand_result  # 与上次相反
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"[模拟器] 头手标定: 上次结果={self.last_head_hand_result}, 本次应该={'成功' if should_succeed else '失败'}")
+            
+            # 直接输出调试信息以便前端看到
+            print(f"[调试] 模拟器ID: {id(self)}, 本次标定: {'失败' if not should_succeed else '成功'}, should_succeed={should_succeed}")
+            
+            script = HeadHandCalibrationScript(should_succeed=should_succeed)
+            # 更新状态为相反值，下次会使用相反的结果
+            self.last_head_hand_result = should_succeed  # 直接设置为本次的结果
+            logger.info(f"[模拟器] 状态更新: 下次结果={not self.last_head_hand_result}")
         else:
             raise ValueError(f"Unknown script type: {script_type}")
         
@@ -226,6 +302,12 @@ class RobotSimulator:
     def is_script_running(self, script_id: str) -> bool:
         """检查脚本是否在运行"""
         return script_id in self.running_scripts and self.running_scripts[script_id].is_running
+    
+    def get_script_result(self, script_id: str) -> bool:
+        """获取脚本执行结果"""
+        if script_id in self.running_scripts:
+            return self.running_scripts[script_id].execution_success
+        return True  # 如果脚本不存在，默认为成功
 
 
 class CalibrationScript:
@@ -239,6 +321,7 @@ class CalibrationScript:
         self._lock = threading.Lock()
         self._loop = None
         self._async_queue = None
+        self.execution_success = True  # 脚本执行结果
         
     def run(self):
         """运行脚本的主循环"""
@@ -436,6 +519,10 @@ class ZeroPointCalibrationScript(CalibrationScript):
 class HeadHandCalibrationScript(CalibrationScript):
     """头手标定脚本模拟"""
     
+    def __init__(self, should_succeed: bool = True):
+        super().__init__()
+        self.should_succeed = should_succeed
+    
     async def _async_run(self):
         """模拟头手标定流程"""
         # 步骤1：启动提示
@@ -454,8 +541,8 @@ class HeadHandCalibrationScript(CalibrationScript):
         
         # 步骤3：自动开始（模拟自动化）
         self._write_output("\n是否开始一键标定流程？(y/n): ")
+        await asyncio.sleep(1)
         self._write_output("自动响应: y")
-        await asyncio.sleep(0.5)
         
         # 步骤4：启动下位机
         self._write_output("\n步骤2: 准备启动下位机launch文件...")
@@ -526,7 +613,26 @@ class HeadHandCalibrationScript(CalibrationScript):
         # 模拟头部标定过程
         self._write_output("执行头部标定...")
         self._write_output("移动头部到标定位置1...")
+        self._write_output(f"[调试] 本次标定模式: {'失败' if not self.should_succeed else '成功'}")
         await asyncio.sleep(2)
+        
+        if not self.should_succeed:
+            # 失败分支：AprilTag检测失败
+            self._write_output("正在检测AprilTag...")
+            await asyncio.sleep(2)
+            self._write_output("❌ 错误：未检测到AprilTag!")
+            self._write_output("可能原因：")
+            self._write_output("  1. AprilTag标签没有正确贴在标定工具上")
+            self._write_output("  2. 相机焦距不正确或画面模糊")
+            self._write_output("  3. 光照条件不足")
+            self._write_output("  4. AprilTag标签破损或遮挡")
+            self._write_output("\n请检查以上问题并重新进行标定")
+            self._write_output("头手标定失败！")
+            self.execution_success = False  # 标记执行失败
+            self.is_running = False
+            return
+        
+        # 成功分支
         self._write_output("采集数据点1/5")
         await asyncio.sleep(1)
         
@@ -538,42 +644,93 @@ class HeadHandCalibrationScript(CalibrationScript):
         
         self._write_output("\n计算标定参数...")
         await asyncio.sleep(2)
-        self._write_output("标定误差: 0.003mm (良好)")
-        self._write_output("✓ 头部标定完成！")
-        self._write_output("备份文件: /home/lab/.config/lejuconfig/arms_zero.yaml.head_cali.bak")
         
-        # 步骤8：手臂标定
+        if not self.should_succeed:
+            # 失败分支：标定精度不达标（这里实际不会执行，因为前面已经返回）
+            self._write_output("❌ 标定误差: 15.8mm (超出精度要求)")
+            self._write_output("标定精度不达标，需要重新标定")
+            self._write_output("建议检查：")
+            self._write_output("  1. 标定工具安装是否牢固")
+            self._write_output("  2. AprilTag是否平整贴合")
+            self._write_output("  3. 机器人运动是否平稳")
+            self._write_output("头手标定失败！")
+            self.is_running = False
+            return
+        else:
+            # 成功分支
+            self._write_output("标定误差: 0.003mm (良好)")
+            self._write_output("✓ 头部标定完成！")
+            self._write_output("备份文件: /home/lab/.config/lejuconfig/arms_zero.yaml.head_cali.bak")
+        
+        # 步骤8：手臂标定（仅在头部标定成功时继续）
         self._write_output("\n步骤5: 启动手臂标定...")
         await asyncio.sleep(1)
         self._write_output("执行手臂标定脚本...")
         
-        # 模拟手臂标定
-        self._write_output("开始手臂标定流程...")
-        for arm in ["左臂", "右臂"]:
-            self._write_output(f"\n标定{arm}...")
-            for j in range(1, 8):
-                self._write_output(f"  关节{j}标定中...")
-                await asyncio.sleep(0.5)
-            self._write_output(f"✓ {arm}标定完成")
-        
-        self._write_output("\n手臂标定完成")
-        self._write_output("标定完成，按任意键退出...")
-        self._write_output("自动响应: 回车")
-        await asyncio.sleep(1)
-        
-        # 完成
-        self._write_output("\n" + "="*51)
-        self._write_output(" ▄▄▄▄                   ██              ")
-        self._write_output(" ▀▀██                   ▀▀              ")
-        self._write_output("   ██       ▄████▄    ████     ██    ██ ")
-        self._write_output("   ██      ██▄▄▄▄██     ██     ██    ██ ")
-        self._write_output("   ██      ██▀▀▀▀▀▀     ██     ██    ██ ")
-        self._write_output("   ██▄▄▄   ▀██▄▄▄▄█     ██     ██▄▄▄███ ")
-        self._write_output("    ▀▀▀▀     ▀▀▀▀▀      ██      ▀▀▀▀ ▀▀ ")
-        self._write_output("                     ████▀              ")
-        self._write_output("="*51)
-        
-        self.is_running = False
+        # 模拟手臂标定 - 使用异常处理确保完整执行
+        try:
+            self._write_output("开始手臂标定流程...")
+            
+            for arm_idx, arm in enumerate(["左臂", "右臂"]):
+                if not self.is_running:  # 检查脚本是否被外部停止
+                    self._write_output(f"[警告] 脚本在{arm}标定前被停止")
+                    return
+                    
+                self._write_output(f"\n标定{arm}...")
+                
+                for j in range(1, 8):
+                    if not self.is_running:  # 检查脚本是否被外部停止
+                        self._write_output(f"[警告] 脚本在关节{j}标定时被停止")
+                        return
+                        
+                    self._write_output(f"  关节{j}标定中...")
+                    
+                    # 使用更短的sleep避免竞争条件
+                    try:
+                        await asyncio.sleep(0.3)
+                    except asyncio.CancelledError:
+                        self._write_output(f"[警告] 异步任务被取消，停在关节{j}")
+                        return
+                
+                self._write_output(f"✓ {arm}标定完成")
+            
+            # 确保所有手臂标定完成后再继续
+            if not self.is_running:
+                self._write_output("[警告] 脚本在手臂标定完成检查时被停止")
+                return
+                
+            self._write_output("\n手臂标定完成")
+            self._write_output("标定完成，按任意键退出...")
+            
+            # 等待用户输入（会被自动化系统自动发送回车）
+            try:
+                response = await self._wait_for_input()
+            except asyncio.CancelledError:
+                self._write_output("[警告] 等待用户输入时被取消")
+                return
+            
+            # 输出完成信息
+            self._write_output("\n" + "="*51)
+            self._write_output(" ▄▄▄▄                   ██              ")
+            self._write_output(" ▀▀██                   ▀▀              ")
+            self._write_output("   ██       ▄████▄    ████     ██    ██ ")
+            self._write_output("   ██      ██▄▄▄▄██     ██     ██    ██ ")
+            self._write_output("   ██      ██▀▀▀▀▀▀     ██     ██    ██ ")
+            self._write_output("   ██▄▄▄   ▀██▄▄▄▄█     ██     ██▄▄▄███ ")
+            self._write_output("    ▀▀▀▀     ▀▀▀▀▀      ██      ▀▀▀▀ ▀▀ ")
+            self._write_output("                     ████▀              ")
+            self._write_output("="*51)
+            
+            # 最后再设置结束标志
+            self._write_output("[调试] 脚本正常完成所有输出")
+            
+        except Exception as e:
+            self._write_output(f"[错误] 手臂标定过程中发生异常: {str(e)}")
+            self.execution_success = False
+        finally:
+            # 确保最后设置结束标志
+            self.is_running = False
+            self._write_output("[调试] 脚本执行结束，is_running设置为False")
 
 
     def get_upper_info(self) -> Dict[str, Any]:

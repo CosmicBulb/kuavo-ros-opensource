@@ -403,35 +403,22 @@ class ZeroPointCalibrationService:
         await self._proceed_to_remove_tools(session)
     
     async def _wait_for_user_response(self, session: ZeroPointSession, script_id: str, prompt: str):
-        """等待用户响应"""
-        # 设置用户响应等待事件
-        if not hasattr(session, 'user_response_event'):
-            session.user_response_event = asyncio.Event()
+        """自动响应用户交互"""
+        # 直接自动确认，不等待用户
+        await asyncio.sleep(1)  # 短暂延迟模拟响应时间
+        
+        # 根据不同的提示使用不同的默认响应
+        if "stand_robot" in script_id or "站立命令" in prompt:
+            default_response = "o"  # 发送站立命令
+        elif "save_zero_point" in script_id or "保存" in prompt:
+            default_response = "c"  # 确认保存
         else:
-            session.user_response_event.clear()
+            default_response = "y"  # 默认确认
         
-        session.user_response = None
-        
-        # 等待用户响应（最多等待5分钟）
-        try:
-            await asyncio.wait_for(session.user_response_event.wait(), timeout=300.0)
-            
-            if session.user_response:
-                # 发送用户响应到模拟器脚本
-                ssh_service.simulator.send_script_input(script_id, session.user_response)
-                await self._broadcast_log(session, f"用户响应: {session.user_response}")
-            else:
-                # 如果没有响应，使用默认值
-                default_response = "y"
-                ssh_service.simulator.send_script_input(script_id, default_response)
-                await self._broadcast_log(session, f"使用默认响应: {default_response}")
-                
-        except asyncio.TimeoutError:
-            logger.warning(f"会话 {session.session_id} 等待用户响应超时")
-            # 超时使用默认响应
-            default_response = "y"
-            ssh_service.simulator.send_script_input(script_id, default_response)
-            await self._broadcast_log(session, f"等待超时，使用默认响应: {default_response}")
+        # 发送自动响应到模拟器脚本
+        ssh_service.simulator.send_script_input(script_id, default_response)
+        await self._broadcast_log(session, f"自动确认: {default_response}")
+        logger.info(f"会话 {session.session_id} 自动响应: {default_response}")
     
     async def _broadcast_log(self, session: ZeroPointSession, log_line: str):
         """广播日志"""
@@ -592,17 +579,15 @@ class ZeroPointCalibrationService:
                         
                         # 检查是否需要用户输入
                         if any(prompt in line.lower() for prompt in ["(y/n)", "按 'o'", "press 'o'", "输入", "input", "按下'o'", "按o键"]):
-                            session.status = ZeroPointStatus.WAITING_USER
-                            session.step_progress["user_prompt"] = line
+                            await self._broadcast_log(session, f"检测到交互提示: {line}")
+                            await self._broadcast_log(session, "自动进行确认...")
+                            
+                            # 记录提示信息供自动响应使用
+                            session.step_progress["last_prompt"] = line
+                            session.step_progress["auto_response"] = True
                             await self._broadcast_session_update(session)
                             
-                            # 设置用户响应事件
-                            if not hasattr(session, 'user_response_event'):
-                                session.user_response_event = asyncio.Event()
-                            else:
-                                session.user_response_event.clear()
-                            
-                            # 启动一个并发任务等待用户响应
+                            # 直接自动响应，不需要等待
                             asyncio.create_task(self._wait_for_user_response_real(session))
             
             # 使用交互式命令执行
@@ -639,30 +624,23 @@ class ZeroPointCalibrationService:
             raise
     
     async def _wait_for_user_response_real(self, session: ZeroPointSession):
-        """等待用户响应（真实模式）"""
-        try:
-            # 等待用户响应（最多等待5分钟）
-            await asyncio.wait_for(session.user_response_event.wait(), timeout=300.0)
-            
-            if session.user_response:
-                # 发送到交互式会话
-                session_id = f"calibration_{session.session_id}"
-                await ssh_service.send_input_to_session(session_id, session.user_response + "\n")
-                await self._broadcast_log(session, f"用户响应: {session.user_response}")
-            else:
-                # 使用默认响应
-                default_response = "o"  # 默认按 'o' 键
-                session_id = f"calibration_{session.session_id}"
-                await ssh_service.send_input_to_session(session_id, default_response + "\n")
-                await self._broadcast_log(session, f"使用默认响应: {default_response}")
-                
-        except asyncio.TimeoutError:
-            logger.warning(f"会话 {session.session_id} 等待用户响应超时")
-            # 超时使用默认响应
-            default_response = "o"
-            session_id = f"calibration_{session.session_id}"
-            await ssh_service.send_input_to_session(session_id, default_response + "\n")
-            await self._broadcast_log(session, f"等待超时，使用默认响应: {default_response}")
+        """自动响应用户交互（真实模式）"""
+        # 短暂延迟后自动发送响应
+        await asyncio.sleep(2)  # 给系统一些时间准备
+        
+        # 根据当前上下文确定响应
+        if "等待按键" in session.step_progress.get("last_prompt", "") or "press" in session.step_progress.get("last_prompt", "").lower():
+            default_response = "o"  # 站立命令
+        elif "确认" in session.step_progress.get("last_prompt", "") or "save" in session.step_progress.get("last_prompt", "").lower():
+            default_response = "c"  # 确认保存
+        else:
+            default_response = "y"  # 默认确认
+        
+        # 发送到交互式会话
+        session_id = f"calibration_{session.session_id}"
+        await ssh_service.send_input_to_session(session_id, default_response + "\n")
+        await self._broadcast_log(session, f"自动响应: {default_response}")
+        logger.info(f"会话 {session.session_id} 自动发送响应: {default_response}")
     
     async def _save_calibration_results(self, session: ZeroPointSession):
         """保存标定结果"""
@@ -839,17 +817,16 @@ class ZeroPointCalibrationService:
         await asyncio.sleep(3)
         await self._broadcast_log(session, "机器人缩腿完成")
         
-        # 3. 等待用户确认并发送站立命令
+        # 3. 自动发送站立命令
         await self._broadcast_log(session, "")
-        await self._broadcast_log(session, "⚠️ 请确认机器人已完成缩腿动作")
-        await self._broadcast_log(session, "确认后将发送站立命令 'o'")
+        await self._broadcast_log(session, "✅ 自动确认机器人缩腿完成")
+        await self._broadcast_log(session, "自动发送站立命令 'o'")
         
-        # 设置等待用户响应状态
-        session.status = ZeroPointStatus.WAITING_USER
-        session.step_progress["user_prompt"] = "机器人是否已完成缩腿动作？将发送站立命令 'o'"
+        # 不设置等待状态，直接处理
+        session.step_progress["user_prompt"] = "自动确认并发送站立命令"
         await self._broadcast_session_update(session)
         
-        # 等待用户响应
+        # 自动响应
         await self._wait_for_user_response(session, "stand_robot", "确认机器人状态")
         
         # 4. 发送站立命令
@@ -897,17 +874,16 @@ class ZeroPointCalibrationService:
                         joint.current_position = position
                         break
         
-        # 6. 等待用户确认保存零点
+        # 6. 自动确认保存零点
         await self._broadcast_log(session, "")
-        await self._broadcast_log(session, "⚠️ 零点校准完成")
-        await self._broadcast_log(session, "如果位置正确，请按 'c' 保存当前位置作为零点")
+        await self._broadcast_log(session, "✅ 零点校准完成")
+        await self._broadcast_log(session, "自动保存当前位置作为零点")
         
-        # 设置等待用户响应状态
-        session.status = ZeroPointStatus.WAITING_USER
-        session.step_progress["user_prompt"] = "是否保存当前位置作为零点？按 'c' 确认保存"
+        # 不设置等待状态
+        session.step_progress["user_prompt"] = "自动确认保存零点"
         await self._broadcast_session_update(session)
         
-        # 等待用户响应
+        # 自动响应
         await self._wait_for_user_response(session, "save_zero_point", "确认保存零点")
         
         # 7. 保存零点数据
@@ -944,13 +920,17 @@ class ZeroPointCalibrationService:
                         
                         # 检查是否需要用户输入
                         if any(prompt in line.lower() for prompt in ["按", "press", "input", "输入"]):
-                            session.status = ZeroPointStatus.WAITING_USER
+                            await self._broadcast_log(session, f"检测到交互提示: {line}")
+                            await self._broadcast_log(session, "自动进行确认...")
+                            
+                            # 记录提示信息
                             session.step_progress["user_prompt"] = line
+                            session.step_progress["last_prompt"] = line
+                            session.step_progress["auto_response"] = True
                             await self._broadcast_session_update(session)
                             
-                            # 等待用户响应
+                            # 自动响应
                             await self._wait_for_user_response(session, "user_input", line)
-                            session.status = ZeroPointStatus.IN_PROGRESS
             
             # 更新会话状态
             session.step_progress["calibration_completed"] = True
